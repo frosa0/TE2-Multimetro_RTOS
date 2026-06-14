@@ -1,0 +1,26 @@
+# Archivos de Compilación (Binarios pesados)
+**/Debug/
+**/Release/
+*.o
+*.su
+*.d
+*.elf
+*.bin
+*.hex
+*.map
+
+# Archivos temporales del IDE
+.metadata/
+.recommenders/
+**/RemoteSystemsTempFiles/
+**/.settings/
+
+# Logs y S.O.
+*.log
+.DS_Store
+Thumbs.db
+
+#Archivos pesados y repetidos 
+*.mp4
+06_NoIndexado/
+Libros/
