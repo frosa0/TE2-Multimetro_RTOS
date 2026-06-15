@@ -22,11 +22,35 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "ssd1306.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+typedef enum {
+    STATE_IDLE,
+    STATE_MENU,
+    STATE_SUBMENU,
+    STATE_RUN,
+    STATE_DIAGNOSTIC,
+    STATE_ERROR
+} FSMState;
+
+typedef enum {
+    EVENT_NINGUNO,
+    EVENT_PUSH,
+    EVENT_H,
+    EVENT_AH,
+    EVENT_ERROR
+} FSMEvent;
+
+typedef struct {
+    FSMState estado;
+    uint8_t pagina_principal;
+    uint8_t sub_pagina;
+    uint8_t pagina_diag;
+} ScreenMsg_t;
 
 /* USER CODE END PTD */
 
@@ -44,6 +68,8 @@
 ADC_HandleTypeDef hadc1;
 
 I2C_HandleTypeDef hi2c1;
+
+TIM_HandleTypeDef htim2;
 
 /* Definitions for task_DISPLAY */
 osThreadId_t task_DISPLAYHandle;
@@ -78,8 +104,19 @@ osMessageQueueId_t myQueue01Handle;
 const osMessageQueueAttr_t myQueue01_attributes = {
   .name = "myQueue01"
 };
+/* Definitions for myCountingSem01 */
+osSemaphoreId_t myCountingSem01Handle;
+const osSemaphoreAttr_t myCountingSem01_attributes = {
+  .name = "myCountingSem01"
+};
 /* USER CODE BEGIN PV */
+volatile uint8_t page = 0;       // 0: Config, 1: Diag, 2: Run
+volatile uint8_t subpage = 0;    // 0: Resistencia, 1: Capacitor
+volatile uint8_t DP = 0;         // Páginas de Diagnóstico (0 a 4)
 
+// Traemos los handlers que generó CubeMX para FreeRTOS (los nombres pueden variar según tu config)
+extern osMessageQueueId_t screenQueueHandle;
+//extern osSemaphoreId_t    medicionSemHandle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -87,13 +124,15 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
+static void MX_TIM2_Init(void);
 void StartTask_DISPLAY(void *argument);
 void StartTask_GUI(void *argument);
 void StartTask_DIAGNOSTIC(void *argument);
 void StartTask_PROCESSING(void *argument);
 
 /* USER CODE BEGIN PFP */
-
+FSMState fsm_process_event(FSMState current, FSMEvent event);
+FSMEvent Leer_Hardware_Encoder(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -132,8 +171,10 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC1_Init();
   MX_I2C1_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-
+//  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+  SSD1306_Init();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -142,6 +183,10 @@ int main(void)
   /* USER CODE BEGIN RTOS_MUTEX */
   /* add mutexes, ... */
   /* USER CODE END RTOS_MUTEX */
+
+  /* Create the semaphores(s) */
+  /* creation of myCountingSem01 */
+  myCountingSem01Handle = osSemaphoreNew(2, 0, &myCountingSem01_attributes);
 
   /* USER CODE BEGIN RTOS_SEMAPHORES */
   /* add semaphores, ... */
@@ -209,12 +254,13 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI_DIV2;
-  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL16;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL9;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -323,6 +369,55 @@ static void MX_I2C1_Init(void)
 }
 
 /**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 0;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 65535;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 10;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 10;
+  if (HAL_TIM_Encoder_Init(&htim2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -336,6 +431,7 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
@@ -345,17 +441,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Cref_Pin Cx_Pin RiA5_Pin */
-  GPIO_InitStruct.Pin = Cref_Pin|Cx_Pin|RiA5_Pin;
+  /*Configure GPIO pins : Cref_Pin Cx_Pin RiA5_Pin Encoder_PUSH_Pin */
+  GPIO_InitStruct.Pin = Cref_Pin|Cx_Pin|RiA5_Pin|Encoder_PUSH_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : encoder_L_Pin encoder_R_Pin encoder_PUSH_Pin */
-  GPIO_InitStruct.Pin = encoder_L_Pin|encoder_R_Pin|encoder_PUSH_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -363,7 +453,96 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/* USER CODE BEGIN 4 */
+FSMState fsm_process_event(FSMState current, FSMEvent event) {
+    FSMState next = current;
+    switch (current) {
+        case STATE_IDLE:
+            if (event == EVENT_PUSH) {
+                page = 0;
+                next = STATE_MENU;
+            }
+            break;
 
+        case STATE_MENU:
+            if (event == EVENT_H)  page = (page + 1) % 3;
+            if (event == EVENT_AH) page = (page + 2) % 3; // Evita índices negativos
+            if (event == EVENT_PUSH) {
+                if (page == 0)      { subpage = 0; next = STATE_SUBMENU; }
+                else if (page == 1) { DP = 0;      next = STATE_DIAGNOSTIC; }
+                else if (page == 2) { next = STATE_RUN; }
+            }
+            if (event == EVENT_ERROR) next = STATE_ERROR;
+            break;
+
+        case STATE_SUBMENU:
+            if (event == EVENT_H)  subpage = (subpage + 1) % 2;
+            if (event == EVENT_AH) subpage = (subpage + 1) % 2; // Alterna entre 0 y 1
+            if (event == EVENT_PUSH) {
+                // Acá podés guardar tu variable global: ej. tipo_medicion = subpage;
+                next = STATE_MENU;
+            }
+            if (event == EVENT_ERROR) next = STATE_ERROR;
+            break;
+
+        case STATE_RUN:
+            if (event == EVENT_PUSH)  next = STATE_MENU;
+            if (event == EVENT_ERROR) next = STATE_ERROR;
+            break;
+
+        case STATE_DIAGNOSTIC:
+            if (event == EVENT_PUSH) next = STATE_MENU;
+            if (event == EVENT_H)  DP = (DP + 1) % 5;
+            if (event == EVENT_AH) DP = (DP + 4) % 5; // Evita negativos para 5 páginas
+            if (event == EVENT_ERROR) next = STATE_ERROR;
+            break;
+
+        case STATE_ERROR:
+            if (event == EVENT_PUSH) {
+                // Al presionar el encoder en pantalla de error, reiniciamos a IDLE
+                page = 0;
+                next = STATE_IDLE;
+            }
+            break;
+        default: break;
+    }
+    return next;
+}
+
+FSMEvent Leer_Hardware_Encoder(void) {
+    static int32_t cnt_anterior = 0;
+    // Leemos el contador del Timer (reemplazá htim2 por el tuyo)
+    int32_t cnt_actual = (int32_t)__HAL_TIM_GET_COUNTER(&htim2);
+    FSMEvent evento = EVENT_NINGUNO;
+
+    // 1. Detección de Giro (gracias a los Pull-Ups ya no oscilará solo)
+    if (cnt_actual != cnt_anterior) {
+		if (cnt_actual > (cnt_anterior + 3)) {
+			evento = EVENT_H;
+			 cnt_anterior = cnt_actual;
+		}
+
+		if (cnt_actual < (cnt_anterior - 3)) {
+			evento = EVENT_AH;
+		 cnt_anterior = cnt_actual;
+		}
+
+
+        return evento;
+    }
+
+    // 2. Detección del botón PUSH (Pin con Pull-Up activo, entrada en BAJO al presionar)
+    static uint8_t boton_presionado = 0;
+    if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_12) == GPIO_PIN_RESET) { // Reemplazá por tu pin
+        if (!boton_presionado) {
+            boton_presionado = 1;
+            evento = EVENT_PUSH;
+        }
+    } else {
+        boton_presionado = 0;
+    }
+    return evento;
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartTask_DISPLAY */
@@ -394,10 +573,69 @@ void StartTask_DISPLAY(void *argument)
 void StartTask_GUI(void *argument)
 {
   /* USER CODE BEGIN StartTask_GUI */
+	FSMState estado_actual = STATE_IDLE;
+	FSMState estado_anterior = STATE_ERROR; // Forzamos disparar el primer envío
+	FSMEvent evento = EVENT_NINGUNO;
+	ScreenMsg_t msg_pantalla;
+
+	// Inicializamos el modo Encoder del Timer por Hardware
+	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+		// 1. Leer el encoder y botón
+		evento = Leer_Hardware_Encoder();
+//		// 2. Consultar si Diagnóstico inyectó una alerta de forma asrincrónica
+//		extern volatile uint8_t Alerta_Diagnostico_Activa; // Bandera global de la otra tarea
+//		if (Alerta_Diagnostico_Activa == 1) {
+//			evento = EVENT_ERROR;
+//			Alerta_Diagnostico_Activa = 0;
+//		}
+		// 3. Si pasó algo, procesamos y notificamos
+		if (evento != EVENT_NINGUNO) {
+			estado_anterior = estado_actual;
+			estado_actual = fsm_process_event(estado_actual, evento);
+
+			// Sincronización: Si entramos a MODO RUN, soltamos el semáforo para el multímetro
+			if (estado_actual == STATE_RUN && estado_anterior != STATE_RUN) {
+				// 3. Si pasó algo, procesamos y notificamos
+				    if (evento != EVENT_NINGUNO) {
+				        estado_anterior = estado_actual;
+				        estado_actual = fsm_process_event(estado_actual, evento);
+
+				        // Sincronización: Si entramos a MODO RUN, soltamos el semáforo para el multímetro
+				        if (estado_actual == STATE_RUN && estado_anterior != STATE_RUN) {
+				            osSemaphoreRelease(myCountingSem01Handle);
+				        }
+
+				        // Preparamos el paquete de datos para la pantalla
+				        msg_pantalla.estado = estado_actual;
+				        msg_pantalla.pagina_principal = page;
+				        msg_pantalla.sub_pagina = subpage;
+				        msg_pantalla.pagina_diag = DP;
+
+				        // Se lo mandamos a la cola de la pantalla (espera 0, no bloquea la GUI)
+				        osMessageQueuePut(task_DISPLAYHandle, &msg_pantalla, 0, 0);
+				    }
+
+				    // 30ms de Delay: Filtra rebotes y asegura respuestas menores a 20ms
+				    osDelay(30);
+			}
+
+			// Preparamos el paquete de datos para la pantalla
+			msg_pantalla.estado = estado_actual;
+			msg_pantalla.pagina_principal = page;
+			msg_pantalla.sub_pagina = subpage;
+			msg_pantalla.pagina_diag = DP;
+
+			// Se lo mandamos a la cola de la pantalla (espera 0, no bloquea la GUI)
+			osMessageQueuePut(myQueue01Handle, &msg_pantalla, 0, 0);
+		}
+
+		// 30ms de Delay: Filtra rebotes y asegura respuestas menores a 20ms
+		osDelay(30);
+
   }
   /* USER CODE END StartTask_GUI */
 }

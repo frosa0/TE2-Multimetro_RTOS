@@ -69,12 +69,8 @@ void Error_Handler(void);
 #define Cx_GPIO_Port GPIOA
 #define RiA5_Pin GPIO_PIN_5
 #define RiA5_GPIO_Port GPIOA
-#define encoder_L_Pin GPIO_PIN_10
-#define encoder_L_GPIO_Port GPIOB
-#define encoder_R_Pin GPIO_PIN_11
-#define encoder_R_GPIO_Port GPIOB
-#define encoder_PUSH_Pin GPIO_PIN_15
-#define encoder_PUSH_GPIO_Port GPIOB
+#define Encoder_PUSH_Pin GPIO_PIN_12
+#define Encoder_PUSH_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 
