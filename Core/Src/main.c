@@ -47,11 +47,22 @@ typedef enum {
 
 typedef struct {
     FSMState estado;
-    uint8_t pagina_principal;
-    uint8_t sub_pagina;
-    uint8_t pagina_diag;
-} ScreenMsg_t;
+    uint8_t pagina;
+} screenMsg_t;
 
+typedef enum {
+	PAG_CONFIG,		//0
+	PAG_DIAG,		//1
+	PAG_RUN,		//2
+	PAG_RES,		//3
+	PAG_CAP,		//4
+	PAG_T1,			//5
+	PAG_T2,			//6
+	PAG_T3,			//7
+	PAG_T4,			//8
+	PAG_HEAP,		//9
+	PAG_FACU		//10
+}page_t;
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
@@ -110,9 +121,9 @@ const osSemaphoreAttr_t myCountingSem01_attributes = {
   .name = "myCountingSem01"
 };
 /* USER CODE BEGIN PV */
-volatile uint8_t page = 0;       // 0: Config, 1: Diag, 2: Run
-volatile uint8_t subpage = 0;    // 0: Resistencia, 1: Capacitor
-volatile uint8_t DP = 0;         // Páginas de Diagnóstico (0 a 4)
+volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
+//volatile uint8_t subpage = 0;    // 0: Resistencia, 1: Capacitor
+//volatile uint8_t DP = 0;         // Páginas de Diagnóstico (0 a 4)
 
 // Traemos los handlers que generó CubeMX para FreeRTOS (los nombres pueden variar según tu config)
 extern osMessageQueueId_t screenQueueHandle;
@@ -435,17 +446,33 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
-  /*Configure GPIO pins : Rc1_Pin Rx_Pin Ri_Pin */
-  GPIO_InitStruct.Pin = Rc1_Pin|Rx_Pin|Ri_Pin;
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PC13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : Rx_Pin Ri_Pin */
+  GPIO_InitStruct.Pin = Rx_Pin|Ri_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Cref_Pin Cx_Pin RiA5_Pin Encoder_PUSH_Pin */
-  GPIO_InitStruct.Pin = Cref_Pin|Cx_Pin|RiA5_Pin|Encoder_PUSH_Pin;
+  /*Configure GPIO pins : Cref_Pin Cx_Pin RiA5_Pin */
+  GPIO_InitStruct.Pin = Cref_Pin|Cx_Pin|RiA5_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : Encoder_PUSH_Pin */
+  GPIO_InitStruct.Pin = Encoder_PUSH_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  HAL_GPIO_Init(Encoder_PUSH_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
 
@@ -459,7 +486,7 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
     switch (current) {
         case STATE_IDLE:
             if (event == EVENT_PUSH) {
-                page = 0;
+                page = PAG_CONFIG;
                 next = STATE_MENU;
             }
             break;
@@ -468,19 +495,24 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
             if (event == EVENT_H)  page = (page + 1) % 3;
             if (event == EVENT_AH) page = (page + 2) % 3; // Evita índices negativos
             if (event == EVENT_PUSH) {
-                if (page == 0)      { subpage = 0; next = STATE_SUBMENU; }
-                else if (page == 1) { DP = 0;      next = STATE_DIAGNOSTIC; }
-                else if (page == 2) { next = STATE_RUN; }
+                if (page == PAG_CONFIG)      { page = PAG_RES; next = STATE_SUBMENU; }
+                else if (page == PAG_DIAG) { page = PAG_T1; next = STATE_DIAGNOSTIC; }
+                else if (page == PAG_RUN) { next = STATE_RUN; }
             }
             if (event == EVENT_ERROR) next = STATE_ERROR;
             break;
 
         case STATE_SUBMENU:
-            if (event == EVENT_H)  subpage = (subpage + 1) % 2;
-            if (event == EVENT_AH) subpage = (subpage + 1) % 2; // Alterna entre 0 y 1
+//            if (event == EVENT_H){
+////            	if (page == PAG_RES) page = PAG_CAP;
+////            	if (page == pag_cap) page = PAG_RES;
+//            }
+            if (event == EVENT_H)  page = PAG_RES + (page-(PAG_RES-1) ) % 2;
+            if (event == EVENT_AH) page = PAG_RES + (page-(PAG_RES-1) ) % 2; // Alterna entre 0 y 1
             if (event == EVENT_PUSH) {
                 // Acá podés guardar tu variable global: ej. tipo_medicion = subpage;
                 next = STATE_MENU;
+                page = PAG_CONFIG; //SE RESETEA LA PAGINA PORQUE SE SALE DEL SUBMENÚ AL MENÚ.
             }
             if (event == EVENT_ERROR) next = STATE_ERROR;
             break;
@@ -491,10 +523,13 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
             break;
 
         case STATE_DIAGNOSTIC:
-            if (event == EVENT_PUSH) next = STATE_MENU;
-            if (event == EVENT_H)  DP = (DP + 1) % 5;
-            if (event == EVENT_AH) DP = (DP + 4) % 5; // Evita negativos para 5 páginas
+            if (event == EVENT_H) page = PAG_T1 + (page - (PAG_T1 - 1)) % 6;
+            if (event == EVENT_AH) page = PAG_FACU - ((PAG_FACU + 1) - page) % 6;
             if (event == EVENT_ERROR) next = STATE_ERROR;
+            if (event == EVENT_PUSH){
+            		next = STATE_MENU;
+            		page = PAG_CONFIG;
+            }
             break;
 
         case STATE_ERROR:
@@ -526,21 +561,28 @@ FSMEvent Leer_Hardware_Encoder(void) {
 			evento = EVENT_AH;
 		 cnt_anterior = cnt_actual;
 		}
-
-
-        return evento;
     }
 
-    // 2. Detección del botón PUSH (Pin con Pull-Up activo, entrada en BAJO al presionar)
-    static uint8_t boton_presionado = 0;
-    if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_12) == GPIO_PIN_RESET) { // Reemplazá por tu pin
-        if (!boton_presionado) {
-            boton_presionado = 1;
-            evento = EVENT_PUSH;
-        }
-    } else {
-        boton_presionado = 0;
-    }
+	if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_12) == GPIO_PIN_RESET){
+//		HAL_Delay(300);
+		osDelay(300);
+
+		evento = EVENT_PUSH;
+		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+//		osDelay(50);
+//		HAL_Delay(30);
+	}
+
+//    // 2. Detección del botón PUSH (Pin con Pull-Up activo, entrada en BAJO al presionar)
+//    static uint8_t boton_presionado = 0;
+//    if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_12) == GPIO_PIN_RESET) { // Reemplazá por tu pin
+//        if (!boton_presionado) {
+//            boton_presionado = 1;
+//            evento = EVENT_PUSH;
+//        }
+//    } else {
+//        boton_presionado = 0;
+//    }
     return evento;
 }
 /* USER CODE END 4 */
@@ -576,7 +618,7 @@ void StartTask_GUI(void *argument)
 	FSMState estado_actual = STATE_IDLE;
 	FSMState estado_anterior = STATE_ERROR; // Forzamos disparar el primer envío
 	FSMEvent evento = EVENT_NINGUNO;
-	ScreenMsg_t msg_pantalla;
+	screenMsg_t msg_pantalla;
 
 	// Inicializamos el modo Encoder del Timer por Hardware
 	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
@@ -592,6 +634,8 @@ void StartTask_GUI(void *argument)
 //			evento = EVENT_ERROR;
 //			Alerta_Diagnostico_Activa = 0;
 //		}
+		osDelay(30);
+
 		// 3. Si pasó algo, procesamos y notificamos
 		if (evento != EVENT_NINGUNO) {
 			estado_anterior = estado_actual;
@@ -611,9 +655,7 @@ void StartTask_GUI(void *argument)
 
 				        // Preparamos el paquete de datos para la pantalla
 				        msg_pantalla.estado = estado_actual;
-				        msg_pantalla.pagina_principal = page;
-				        msg_pantalla.sub_pagina = subpage;
-				        msg_pantalla.pagina_diag = DP;
+				        msg_pantalla.pagina = page;
 
 				        // Se lo mandamos a la cola de la pantalla (espera 0, no bloquea la GUI)
 				        osMessageQueuePut(task_DISPLAYHandle, &msg_pantalla, 0, 0);
@@ -625,16 +667,16 @@ void StartTask_GUI(void *argument)
 
 			// Preparamos el paquete de datos para la pantalla
 			msg_pantalla.estado = estado_actual;
-			msg_pantalla.pagina_principal = page;
-			msg_pantalla.sub_pagina = subpage;
-			msg_pantalla.pagina_diag = DP;
+			msg_pantalla.pagina = page;
+
+
 
 			// Se lo mandamos a la cola de la pantalla (espera 0, no bloquea la GUI)
 			osMessageQueuePut(myQueue01Handle, &msg_pantalla, 0, 0);
 		}
 
 		// 30ms de Delay: Filtra rebotes y asegura respuestas menores a 20ms
-		osDelay(30);
+//		OSDELAY(30);
 
   }
   /* USER CODE END StartTask_GUI */
