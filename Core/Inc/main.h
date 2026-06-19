@@ -67,6 +67,14 @@ void Error_Handler(void);
 #define Cx_GPIO_Port GPIOA
 #define RiA5_Pin GPIO_PIN_5
 #define RiA5_GPIO_Port GPIOA
+#define Hook_PROCESSING_Pin GPIO_PIN_12
+#define Hook_PROCESSING_GPIO_Port GPIOB
+#define Hook_DIAGNOSTIC_Pin GPIO_PIN_13
+#define Hook_DIAGNOSTIC_GPIO_Port GPIOB
+#define Hook_GUI_Pin GPIO_PIN_14
+#define Hook_GUI_GPIO_Port GPIOB
+#define Hook_DISPLAY_Pin GPIO_PIN_15
+#define Hook_DISPLAY_GPIO_Port GPIOB
 #define Encoder_PUSH_Pin GPIO_PIN_12
 #define Encoder_PUSH_GPIO_Port GPIOA
 
