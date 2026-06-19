@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "ssd1306.h"
+#include "fonts.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -67,6 +68,16 @@ typedef enum {
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define GPIO_HOOK_DISPLAY GPIOB
+#define GPIO_HOOK_DISPLAY_PIN GPIO_PIN_15
+#define GPIO_HOOK_GUI GPIOB
+#define GPIO_HOOK_GUI_PIN GPIO_PIN_14
+#define GPIO_HOOK_DIAGNOSTIC GPIOB
+#define GPIO_HOOK_DIAGNOSTIC_PIN GPIO_PIN_13
+#define GPIO_HOOK_PROCESSING GPIOB
+#define GPIO_HOOK_PROCESSING_PIN GPIO_PIN_12
+
 
 /* USER CODE END PD */
 
@@ -185,7 +196,7 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
 //  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
-  SSD1306_Init();
+  //SSD1306_Init();
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -449,6 +460,9 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOC, GPIO_PIN_13, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, Hook_PROCESSING_Pin|Hook_DIAGNOSTIC_Pin|Hook_GUI_Pin|Hook_DISPLAY_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -468,6 +482,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /*Configure GPIO pins : Hook_PROCESSING_Pin Hook_DIAGNOSTIC_Pin Hook_GUI_Pin Hook_DISPLAY_Pin */
+  GPIO_InitStruct.Pin = Hook_PROCESSING_Pin|Hook_DIAGNOSTIC_Pin|Hook_GUI_Pin|Hook_DISPLAY_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
   /*Configure GPIO pin : Encoder_PUSH_Pin */
   GPIO_InitStruct.Pin = Encoder_PUSH_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
@@ -479,7 +500,6 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_2 */
 }
 
-/* USER CODE BEGIN 4 */
 /* USER CODE BEGIN 4 */
 FSMState fsm_process_event(FSMState current, FSMEvent event) {
     FSMState next = current;
@@ -585,6 +605,24 @@ FSMEvent Leer_Hardware_Encoder(void) {
 //    }
     return evento;
 }
+
+void callback_in(int tag){
+	switch (tag){
+	case TAG_TASK_DISPLAY: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_RESET); break;
+	case TAG_TASK_GUI: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_RESET); break;
+	case TAG_TASK_DIAGNOSTIC: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_RESET); break;
+	case TAG_TASK_PROCESSING: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_RESET); break;
+	}
+}
+
+void callback_out(int tag){
+	switch (tag){
+	case TAG_TASK_DISPLAY: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
+	case TAG_TASK_GUI: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
+	case TAG_TASK_DIAGNOSTIC: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
+	case TAG_TASK_PROCESSING: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
+	}
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartTask_DISPLAY */
@@ -597,9 +635,70 @@ FSMEvent Leer_Hardware_Encoder(void) {
 void StartTask_DISPLAY(void *argument)
 {
   /* USER CODE BEGIN 5 */
+	SSD1306_Init();
+	screenMsg_t msg_rec_GUI;
   /* Infinite loop */
   for(;;)
   {
+	  if(osMessageQueueGet(myQueue01Handle,&msg_rec_GUI, 0, 0) == osOK){
+		  SSD1306_GotoXY(20, 20);
+		  SSD1306_Clear();
+		  switch (msg_rec_GUI.estado) {
+			case STATE_MENU:
+				//SSD1306_Puts("MENU", &Font_11x18, 1);
+				switch (msg_rec_GUI.pagina) {
+					case PAG_CONFIG:
+						SSD1306_Puts("Param.", &Font_11x18, 1);
+						break;
+					case PAG_DIAG:
+						SSD1306_Puts("Diagnos.", &Font_11x18, 1);
+						break;
+					case PAG_RUN:
+						SSD1306_Puts("RUN", &Font_11x18, 1);
+						break;
+				}
+				break;
+
+			case STATE_SUBMENU:
+//				SSD1306_Puts("SUBMENU", &Font_11x18, 1);
+				switch (msg_rec_GUI.pagina) {
+					case PAG_RES:
+						SSD1306_Puts("R", &Font_16x26, 1);
+						break;
+					case PAG_CAP:
+						SSD1306_Puts("C", &Font_16x26, 1);
+						break;
+				}
+				break;
+			case STATE_DIAGNOSTIC:
+//				SSD1306_Puts("Diagnostico", &Font_11x18, 1);
+				switch (msg_rec_GUI.pagina) {
+				case PAG_T1:
+					SSD1306_Puts("T1", &Font_11x18, 1);
+					break;
+				case PAG_T2:
+					SSD1306_Puts("T2", &Font_11x18, 1);
+					break;
+				case PAG_T3:
+					SSD1306_Puts("T3", &Font_11x18, 1);
+					break;
+				case PAG_T4:
+					SSD1306_Puts("T4", &Font_11x18, 1);
+					break;
+				case PAG_HEAP:
+					SSD1306_Puts("Heap", &Font_11x18, 1);
+					break;
+				case PAG_FACU:
+					SSD1306_Puts("FUCK YOU", &Font_11x18, 1);
+					break;
+
+				}
+				break;
+
+		}
+		  SSD1306_UpdateScreen();
+	  }
+
     osDelay(1);
   }
   /* USER CODE END 5 */
@@ -672,7 +771,7 @@ void StartTask_GUI(void *argument)
 
 
 			// Se lo mandamos a la cola de la pantalla (espera 0, no bloquea la GUI)
-			osMessageQueuePut(myQueue01Handle, &msg_pantalla, 0, 0);
+	osMessageQueuePut(myQueue01Handle, &msg_pantalla, 0, 0);
 		}
 
 		// 30ms de Delay: Filtra rebotes y asegura respuestas menores a 20ms
