@@ -64,11 +64,25 @@ typedef enum {
 	PAG_HEAP,		//9
 	PAG_FACU		//10
 }page_t;
+
+typedef enum{
+	STAGE_1_R,
+	STAGE_2_R,
+	STAGE_3_R,
+	STAGE_4_R,
+	STAGE_1_C,
+	STAGE_2_C,
+	STAGE_3_C,
+	STAGE_4_C
+} GPIO_CONFIG;
+
 /* USER CODE END PTD */
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+
+// HOOKS
 #define GPIO_HOOK_DISPLAY GPIOB
 #define GPIO_HOOK_DISPLAY_PIN GPIO_PIN_15
 #define GPIO_HOOK_GUI GPIOB
@@ -77,6 +91,22 @@ typedef enum {
 #define GPIO_HOOK_DIAGNOSTIC_PIN GPIO_PIN_13
 #define GPIO_HOOK_PROCESSING GPIOB
 #define GPIO_HOOK_PROCESSING_PIN GPIO_PIN_12
+
+// GPIOs CONTROL RES
+#define GPIO_Rx GPIOC
+#define GPIO_Rx_pin GPIO_PIN_14
+#define GPIO_Rc1 GPIOC
+#define GPIO_Rc1_pin GPIO_PIN_15
+#define GPIO_Ri_R GPIOA
+#define GPIO_Ri_R_pin GPIO_PIN_1
+// GPIOs CONTROL CAP
+#define GPIO_Cx GPIOA
+#define GPIO_Cx_pin GPIO_PIN_4
+#define GPIO_Cref GPIOA
+#define GPIO_Cref_pin GPIO_PIN_3
+#define GPIO_Ri_C GPIOA
+#define GPIO_Ri_C_pin GPIO_PIN_5
+
 
 
 /* USER CODE END PD */
@@ -88,6 +118,7 @@ typedef enum {
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+ADC_HandleTypeDef hadc2;
 
 I2C_HandleTypeDef hi2c1;
 
@@ -133,8 +164,12 @@ const osSemaphoreAttr_t myCountingSem01_attributes = {
 };
 /* USER CODE BEGIN PV */
 volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
-//volatile uint8_t subpage = 0;    // 0: Resistencia, 1: Capacitor
-//volatile uint8_t DP = 0;         // Páginas de Diagnóstico (0 a 4)
+uint32_t libre_DISPLAY;
+uint32_t libre_GUI;
+uint32_t libre_DIAGNOSTIC;
+uint32_t libre_PROCESSING;
+uint32_t libre_HEAP;
+uint32_t FACU;
 
 // Traemos los handlers que generó CubeMX para FreeRTOS (los nombres pueden variar según tu config)
 extern osMessageQueueId_t screenQueueHandle;
@@ -147,6 +182,7 @@ static void MX_GPIO_Init(void);
 static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
+static void MX_ADC2_Init(void);
 void StartTask_DISPLAY(void *argument);
 void StartTask_GUI(void *argument);
 void StartTask_DIAGNOSTIC(void *argument);
@@ -194,6 +230,7 @@ int main(void)
   MX_ADC1_Init();
   MX_I2C1_Init();
   MX_TIM2_Init();
+  MX_ADC2_Init();
   /* USER CODE BEGIN 2 */
 //  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
   //SSD1306_Init();
@@ -220,7 +257,7 @@ int main(void)
 
   /* Create the queue(s) */
   /* creation of myQueue01 */
-  myQueue01Handle = osMessageQueueNew (16, sizeof(uint16_t), &myQueue01_attributes);
+  myQueue01Handle = osMessageQueueNew (16, sizeof(screenMsg_t), &myQueue01_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -357,6 +394,53 @@ static void MX_ADC1_Init(void)
 }
 
 /**
+  * @brief ADC2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC2_Init(void)
+{
+
+  /* USER CODE BEGIN ADC2_Init 0 */
+
+  /* USER CODE END ADC2_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC2_Init 1 */
+
+  /* USER CODE END ADC2_Init 1 */
+
+  /** Common config
+  */
+  hadc2.Instance = ADC2;
+  hadc2.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc2.Init.ContinuousConvMode = DISABLE;
+  hadc2.Init.DiscontinuousConvMode = DISABLE;
+  hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc2.Init.NbrOfConversion = 1;
+  if (HAL_ADC_Init(&hadc2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_2;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC2_Init 2 */
+
+  /* USER CODE END ADC2_Init 2 */
+
+}
+
+/**
   * @brief I2C1 Initialization Function
   * @param None
   * @retval None
@@ -463,6 +547,9 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, Hook_PROCESSING_Pin|Hook_DIAGNOSTIC_Pin|Hook_GUI_Pin|Hook_DISPLAY_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(Hook_IDLE_GPIO_Port, Hook_IDLE_Pin, GPIO_PIN_RESET);
+
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
@@ -470,14 +557,14 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Rx_Pin Ri_Pin */
-  GPIO_InitStruct.Pin = Rx_Pin|Ri_Pin;
+  /*Configure GPIO pins : Rx_R_Pin Rc1_R_Pin */
+  GPIO_InitStruct.Pin = Rx_R_Pin|Rc1_R_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Cref_Pin Cx_Pin RiA5_Pin */
-  GPIO_InitStruct.Pin = Cref_Pin|Cx_Pin|RiA5_Pin;
+  /*Configure GPIO pins : Ri_R_Pin Cref_C_Pin Cx_C_Pin Ri_C_Pin */
+  GPIO_InitStruct.Pin = Ri_R_Pin|Cref_C_Pin|Cx_C_Pin|Ri_C_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
@@ -488,6 +575,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : Hook_IDLE_Pin */
+  GPIO_InitStruct.Pin = Hook_IDLE_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(Hook_IDLE_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : Encoder_PUSH_Pin */
   GPIO_InitStruct.Pin = Encoder_PUSH_Pin;
@@ -616,12 +710,151 @@ void callback_in(int tag){
 }
 
 void callback_out(int tag){
+
 	switch (tag){
 	case TAG_TASK_DISPLAY: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
 	case TAG_TASK_GUI: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
 	case TAG_TASK_DIAGNOSTIC: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
 	case TAG_TASK_PROCESSING: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
 	}
+}
+
+void set_all_hiz() {
+	// Pone a todos usados los GPIOS en alta impedancia (input NO pullup ni pulldown)
+
+	GPIO_InitTypeDef GPIO_InitStruct;
+
+	/*Configure GPIO pin : PC14 */
+	GPIO_InitStruct.Pin = GPIO_Rx_pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(GPIO_Rx, &GPIO_InitStruct);
+
+	/*Configure GPIO pins : PC15*/
+	GPIO_InitStruct.Pin = GPIO_Rc1_pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(GPIO_Rc1, &GPIO_InitStruct);
+
+	/*Configure GPIO pins : PA1*/
+	GPIO_InitStruct.Pin = GPIO_Ri_R_pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(GPIO_Ri_R, &GPIO_InitStruct);
+
+
+	/*Configure GPIO pin : PA3 */
+	GPIO_InitStruct.Pin = GPIO_Cref_pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(GPIO_Cref, &GPIO_InitStruct);
+
+	/*Configure GPIO pins : PA4*/
+	GPIO_InitStruct.Pin = GPIO_Cx_pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(GPIO_Cx, &GPIO_InitStruct);
+
+	/*Configure GPIO pins : PA5*/
+	GPIO_InitStruct.Pin = GPIO_Ri_C_pin;
+	GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+	GPIO_InitStruct.Pull = GPIO_NOPULL;
+	HAL_GPIO_Init(GPIO_Ri_C, &GPIO_InitStruct);
+}
+
+
+void adj_GPIO(GPIO_CONFIG n) {
+
+	GPIO_InitTypeDef GPIO_InitStruct;
+	set_all_hiz();
+
+	switch ((uint8_t) n) {
+	case STAGE_1_R:
+		HAL_GPIO_DeInit(GPIO_Ri_R, GPIO_Ri_R_pin);
+		GPIO_InitStruct.Pin = GPIO_Ri_R_pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // mier. parece que si no definis todos los apartados (me faltaba la velocidad) no funciona bien la inicializacion
+		HAL_GPIO_Init(GPIO_Ri_R, &GPIO_InitStruct);
+		HAL_GPIO_WritePin(GPIO_Ri_R, GPIO_Ri_R_pin, GPIO_PIN_SET);
+		break;
+
+	case STAGE_2_R:
+		HAL_GPIO_DeInit(GPIO_Rx, GPIO_Rx_pin);
+		GPIO_InitStruct.Pin = GPIO_Rx_pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // mier. parece que si no definis todos los apartados (me faltaba la velocidad) no funciona bien la inicializacion
+		HAL_GPIO_Init(GPIO_Rx, &GPIO_InitStruct);
+		HAL_GPIO_WritePin(GPIO_Rx, GPIO_Rx_pin, GPIO_PIN_RESET);
+		break;
+
+	case STAGE_3_R:
+		HAL_GPIO_DeInit(GPIO_Ri_R, GPIO_Ri_R_pin);
+		GPIO_InitStruct.Pin = GPIO_Ri_R_pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // mier. parece que si no definis todos los apartados (me faltaba la velocidad) no funciona bien la inicializacion
+		HAL_GPIO_Init(GPIO_Ri_R, &GPIO_InitStruct);
+		HAL_GPIO_WritePin(GPIO_Ri_R, GPIO_Ri_R_pin, GPIO_PIN_SET);
+		break;
+
+	case STAGE_4_R:
+		HAL_GPIO_DeInit(GPIO_Rc1, GPIO_Rc1_pin);
+		GPIO_InitStruct.Pin = GPIO_Rc1_pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // mier. parece que si no definis todos los apartados (me faltaba la velocidad) no funciona bien la inicializacion
+		HAL_GPIO_Init(GPIO_Rc1, &GPIO_InitStruct);
+		HAL_GPIO_WritePin(GPIO_Rc1, GPIO_Rc1_pin, GPIO_PIN_RESET);
+		break;
+
+	case STAGE_1_C:
+		HAL_GPIO_DeInit(GPIO_Ri_C, GPIO_Ri_C_pin);
+		GPIO_InitStruct.Pin = GPIO_Ri_C_pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // mier. parece que si no definis todos los apartados (me faltaba la velocidad) no funciona bien la inicializacion
+		HAL_GPIO_Init(GPIO_Ri_C, &GPIO_InitStruct);
+		HAL_GPIO_WritePin(GPIO_Ri_C, GPIO_Ri_C_pin, GPIO_PIN_SET);
+
+		HAL_GPIO_DeInit(GPIO_Cx, GPIO_Cx_pin);
+		GPIO_InitStruct.Pin = GPIO_Cx_pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // mier. parece que si no definis todos los apartados (me faltaba la velocidad) no funciona bien la inicializacion
+		HAL_GPIO_Init(GPIO_Cx, &GPIO_InitStruct);
+		HAL_GPIO_WritePin(GPIO_Cx, GPIO_Cx_pin, GPIO_PIN_RESET);
+		break;
+
+	case STAGE_2_C:
+		HAL_GPIO_DeInit(GPIO_Cx, GPIO_Cx_pin);
+		GPIO_InitStruct.Pin = GPIO_Cx_pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // mier. parece que si no definis todos los apartados (me faltaba la velocidad) no funciona bien la inicializacion
+		HAL_GPIO_Init(GPIO_Cx, &GPIO_InitStruct);
+		HAL_GPIO_WritePin(GPIO_Cx, GPIO_Cx_pin, GPIO_PIN_RESET);
+		break;
+
+	case STAGE_3_C:
+		HAL_GPIO_DeInit(GPIO_Ri_C, GPIO_Ri_C_pin);
+		GPIO_InitStruct.Pin = GPIO_Ri_C_pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // mier. parece que si no definis todos los apartados (me faltaba la velocidad) no funciona bien la inicializacion
+		HAL_GPIO_Init(GPIO_Ri_C, &GPIO_InitStruct);
+		HAL_GPIO_WritePin(GPIO_Ri_C, GPIO_Ri_C_pin, GPIO_PIN_SET);
+
+		HAL_GPIO_DeInit(GPIO_Cref, GPIO_Cref_pin);
+		GPIO_InitStruct.Pin = GPIO_Cref_pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // mier. parece que si no definis todos los apartados (me faltaba la velocidad) no funciona bien la inicializacion
+		HAL_GPIO_Init(GPIO_Cref, &GPIO_InitStruct);
+		HAL_GPIO_WritePin(GPIO_Cref, GPIO_Cref_pin, GPIO_PIN_RESET);
+		break;
+
+	case STAGE_4_C:
+		HAL_GPIO_DeInit(GPIO_Cref, GPIO_Cref_pin);
+		GPIO_InitStruct.Pin = GPIO_Cref_pin;
+		GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+		GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW; // mier. parece que si no definis todos los apartados (me faltaba la velocidad) no funciona bien la inicializacion
+		HAL_GPIO_Init(GPIO_Cref, &GPIO_InitStruct);
+		HAL_GPIO_WritePin(GPIO_Cref, GPIO_Cref_pin, GPIO_PIN_RESET);
+		break;
+	};
 }
 /* USER CODE END 4 */
 
@@ -695,6 +928,9 @@ void StartTask_DISPLAY(void *argument)
 				}
 				break;
 
+			default:
+				break;
+
 		}
 		  SSD1306_UpdateScreen();
 	  }
@@ -740,28 +976,14 @@ void StartTask_GUI(void *argument)
 			estado_anterior = estado_actual;
 			estado_actual = fsm_process_event(estado_actual, evento);
 
-			// Sincronización: Si entramos a MODO RUN, soltamos el semáforo para el multímetro
+			// Sincronización: Al ENTRAR a modo RUN, cargamos el semáforo inicial
 			if (estado_actual == STATE_RUN && estado_anterior != STATE_RUN) {
-				// 3. Si pasó algo, procesamos y notificamos
-				    if (evento != EVENT_NINGUNO) {
-				        estado_anterior = estado_actual;
-				        estado_actual = fsm_process_event(estado_actual, evento);
+				osSemaphoreRelease(myCountingSem01Handle);
+			}
 
-				        // Sincronización: Si entramos a MODO RUN, soltamos el semáforo para el multímetro
-				        if (estado_actual == STATE_RUN && estado_anterior != STATE_RUN) {
-				            osSemaphoreRelease(myCountingSem01Handle);
-				        }
-
-				        // Preparamos el paquete de datos para la pantalla
-				        msg_pantalla.estado = estado_actual;
-				        msg_pantalla.pagina = page;
-
-				        // Se lo mandamos a la cola de la pantalla (espera 0, no bloquea la GUI)
-				        osMessageQueuePut(task_DISPLAYHandle, &msg_pantalla, 0, 0);
-				    }
-
-				    // 30ms de Delay: Filtra rebotes y asegura respuestas menores a 20ms
-				    osDelay(30);
+			// Sincronización: Al SALIR de modo RUN, vaciamos el semáforo para frenar el ADC
+			if (estado_actual != STATE_RUN && estado_anterior == STATE_RUN) {
+				osSemaphoreAcquire(myCountingSem01Handle, 0); // Consumo inmediato sin bloquear
 			}
 
 			// Preparamos el paquete de datos para la pantalla
@@ -775,7 +997,7 @@ void StartTask_GUI(void *argument)
 		}
 
 		// 30ms de Delay: Filtra rebotes y asegura respuestas menores a 20ms
-//		OSDELAY(30);
+		osDelay(30);
 
   }
   /* USER CODE END StartTask_GUI */
@@ -794,6 +1016,15 @@ void StartTask_DIAGNOSTIC(void *argument)
   /* Infinite loop */
   for(;;)
   {
+	// stack de tareas en Bytes
+	libre_DISPLAY = 4*osThreadGetStackSpace(task_DISPLAYHandle);
+	libre_GUI = 4*osThreadGetStackSpace(Task_GUIHandle);
+	libre_DIAGNOSTIC = 4*osThreadGetStackSpace(Task_DIAGNOSTICHandle);
+	libre_PROCESSING = 4*osThreadGetStackSpace(Task_PROCESSINGHandle);
+
+	libre_HEAP = xPortGetFreeHeapSize();
+
+
     osDelay(1);
   }
   /* USER CODE END StartTask_DIAGNOSTIC */

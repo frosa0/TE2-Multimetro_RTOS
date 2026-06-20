@@ -57,16 +57,18 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define Rx_Pin GPIO_PIN_14
-#define Rx_GPIO_Port GPIOC
-#define Ri_Pin GPIO_PIN_15
-#define Ri_GPIO_Port GPIOC
-#define Cref_Pin GPIO_PIN_3
-#define Cref_GPIO_Port GPIOA
-#define Cx_Pin GPIO_PIN_4
-#define Cx_GPIO_Port GPIOA
-#define RiA5_Pin GPIO_PIN_5
-#define RiA5_GPIO_Port GPIOA
+#define Rx_R_Pin GPIO_PIN_14
+#define Rx_R_GPIO_Port GPIOC
+#define Rc1_R_Pin GPIO_PIN_15
+#define Rc1_R_GPIO_Port GPIOC
+#define Ri_R_Pin GPIO_PIN_1
+#define Ri_R_GPIO_Port GPIOA
+#define Cref_C_Pin GPIO_PIN_3
+#define Cref_C_GPIO_Port GPIOA
+#define Cx_C_Pin GPIO_PIN_4
+#define Cx_C_GPIO_Port GPIOA
+#define Ri_C_Pin GPIO_PIN_5
+#define Ri_C_GPIO_Port GPIOA
 #define Hook_PROCESSING_Pin GPIO_PIN_12
 #define Hook_PROCESSING_GPIO_Port GPIOB
 #define Hook_DIAGNOSTIC_Pin GPIO_PIN_13
@@ -75,6 +77,8 @@ void Error_Handler(void);
 #define Hook_GUI_GPIO_Port GPIOB
 #define Hook_DISPLAY_Pin GPIO_PIN_15
 #define Hook_DISPLAY_GPIO_Port GPIOB
+#define Hook_IDLE_Pin GPIO_PIN_8
+#define Hook_IDLE_GPIO_Port GPIOA
 #define Encoder_PUSH_Pin GPIO_PIN_12
 #define Encoder_PUSH_GPIO_Port GPIOA
 
