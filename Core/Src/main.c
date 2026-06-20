@@ -107,7 +107,13 @@ typedef enum{
 #define GPIO_Ri_C GPIOA
 #define GPIO_Ri_C_pin GPIO_PIN_5
 
-
+// PARA CONFIGURACION DE ADC
+#define ADC_MAX (uint16_t)4095
+#define ADC_95 (uint16_t)3890        // 12 bits ADC -> [(2^12)-1]0.95 = 3890
+#define ADC_63 (uint16_t)2580         // 12 bits ADC -> [(2^12)-1]0.63 = 2580
+#define ADC_02 (uint8_t)82             // 12 bits ADC -> [(2^12)-1]*0.63 = 82
+#define SAMPLES (uint8_t)32
+#define ADC_TMAX_CAP (uint16_t)10000
 
 /* USER CODE END PD */
 
@@ -163,6 +169,8 @@ const osSemaphoreAttr_t myCountingSem01_attributes = {
   .name = "myCountingSem01"
 };
 /* USER CODE BEGIN PV */
+uint8_t param_a_medir_global;
+
 volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
 uint32_t libre_DISPLAY;
 uint32_t libre_GUI;
@@ -1040,9 +1048,23 @@ void StartTask_DIAGNOSTIC(void *argument)
 void StartTask_PROCESSING(void *argument)
 {
   /* USER CODE BEGIN StartTask_PROCESSING */
+	uint8_t ADC_val;
+	osSemaphoreAcquire(myCountingSem01Handle, osWaitForever);
   /* Infinite loop */
   for(;;)
   {
+	  	  switch(param_a_medir_global){
+	  	  case 'R':
+	  		  HAL_ADC_Start(&hadc1);
+	  		  ADC_val = HAL_ADC_GetValue(&hadc1);
+	  		  HAL_ADC_Stop(&hadc1);
+	  		  if (ADC_val < ADC_95)
+
+	  		  break;
+
+	  	  case 'C':
+	  	  	  break;
+	  	  }
     osDelay(1);
   }
   /* USER CODE END StartTask_PROCESSING */
