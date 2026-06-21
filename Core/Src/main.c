@@ -51,6 +51,16 @@ typedef struct {
     uint8_t pagina;
 } screenMsg_t;
 
+typedef struct {
+	uint16_t libre_DISPLAY;
+	uint16_t libre_GUI;
+	uint16_t libre_DIAGNOSTIC;
+	uint16_t libre_PROCESSING;
+	uint16_t libre_HEAP;
+	uint16_t FU;
+} diagnosticMsg_t;
+
+
 typedef enum {
 	PAG_CONFIG,		//0
 	PAG_DIAG,		//1
@@ -163,6 +173,11 @@ osMessageQueueId_t myQueue01Handle;
 const osMessageQueueAttr_t myQueue01_attributes = {
   .name = "myQueue01"
 };
+/* Definitions for diag2display */
+osMessageQueueId_t diag2displayHandle;
+const osMessageQueueAttr_t diag2display_attributes = {
+  .name = "diag2display"
+};
 /* Definitions for myCountingSem01 */
 osSemaphoreId_t myCountingSem01Handle;
 const osSemaphoreAttr_t myCountingSem01_attributes = {
@@ -266,6 +281,9 @@ int main(void)
   /* Create the queue(s) */
   /* creation of myQueue01 */
   myQueue01Handle = osMessageQueueNew (16, sizeof(screenMsg_t), &myQueue01_attributes);
+
+  /* creation of diag2display */
+  diag2displayHandle = osMessageQueueNew (16, sizeof(diagnosticMsg_t), &diag2display_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -1021,19 +1039,20 @@ void StartTask_GUI(void *argument)
 void StartTask_DIAGNOSTIC(void *argument)
 {
   /* USER CODE BEGIN StartTask_DIAGNOSTIC */
+	diagnosticMsg_t diagnostic;
   /* Infinite loop */
   for(;;)
   {
 	// stack de tareas en Bytes
-	libre_DISPLAY = 4*osThreadGetStackSpace(task_DISPLAYHandle);
-	libre_GUI = 4*osThreadGetStackSpace(Task_GUIHandle);
-	libre_DIAGNOSTIC = 4*osThreadGetStackSpace(Task_DIAGNOSTICHandle);
-	libre_PROCESSING = 4*osThreadGetStackSpace(Task_PROCESSINGHandle);
+	diagnostic.libre_DISPLAY = 4*osThreadGetStackSpace(task_DISPLAYHandle);
+	diagnostic.libre_GUI = 4*osThreadGetStackSpace(Task_GUIHandle);
+	diagnostic.libre_DIAGNOSTIC = 4*osThreadGetStackSpace(Task_DIAGNOSTICHandle);
+	diagnostic.libre_PROCESSING = 4*osThreadGetStackSpace(Task_PROCESSINGHandle);
 
-	libre_HEAP = xPortGetFreeHeapSize();
+	diagnostic.libre_HEAP = xPortGetFreeHeapSize();
 
 
-    osDelay(1);
+    osDelay(50);
   }
   /* USER CODE END StartTask_DIAGNOSTIC */
 }
