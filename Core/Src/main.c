@@ -28,6 +28,11 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum{
+	NONE,
+	RESISTENCIA,
+	CAPACITOR
+} parametro_t;
 
 typedef enum {
     STATE_IDLE,
@@ -169,7 +174,7 @@ const osSemaphoreAttr_t myCountingSem01_attributes = {
   .name = "myCountingSem01"
 };
 /* USER CODE BEGIN PV */
-uint8_t param_a_medir_global;
+parametro_t param_a_medir_global = NONE;
 
 volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
 uint32_t libre_DISPLAY;
@@ -605,6 +610,9 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 FSMState fsm_process_event(FSMState current, FSMEvent event) {
     FSMState next = current;
+//    RECORDAR USAR VARIABLE LOCAL PARA EVITAR LEER Y ESCRIBIR AL MISMO TIEMPO VARIABLE GLOBAL
+//    parametro_t param_a_medir_local;
+
     switch (current) {
         case STATE_IDLE:
             if (event == EVENT_PUSH) {
@@ -625,16 +633,23 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
             break;
 
         case STATE_SUBMENU:
-//            if (event == EVENT_H){
-////            	if (page == PAG_RES) page = PAG_CAP;
-////            	if (page == pag_cap) page = PAG_RES;
-//            }
             if (event == EVENT_H)  page = PAG_RES + (page-(PAG_RES-1) ) % 2;
             if (event == EVENT_AH) page = PAG_RES + (page-(PAG_RES-1) ) % 2; // Alterna entre 0 y 1
             if (event == EVENT_PUSH) {
                 // Acá podés guardar tu variable global: ej. tipo_medicion = subpage;
-                next = STATE_MENU;
-                page = PAG_CONFIG; //SE RESETEA LA PAGINA PORQUE SE SALE DEL SUBMENÚ AL MENÚ.
+				switch (page) {
+					case PAG_RES:
+						param_a_medir_global = RESISTENCIA;
+						//param_a_medir_local = RESISTENCIA;
+						break;
+					case PAG_CAP:
+						param_a_medir_global = CAPACITOR;
+						//param_a_medir_local = CAPACITOR;
+						break;
+					default: break;
+					}
+				next = STATE_MENU;
+				page = PAG_CONFIG; //SE RESETEA LA PAGINA PORQUE SE SALE DEL SUBMENÚ AL MENÚ.
             }
             if (event == EVENT_ERROR) next = STATE_ERROR;
             break;
@@ -663,6 +678,8 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
             break;
         default: break;
     }
+//    RECORDAR USAR VARIABLE LOCAL PARA EVITAR LEER Y ESCRIBIR AL MISMO TIEMPO VARIABLE GLOBAL
+//    param_a_medir_global = param_a_medir_local;
     return next;
 }
 
@@ -895,7 +912,19 @@ void StartTask_DISPLAY(void *argument)
 						SSD1306_Puts("Diagnos.", &Font_11x18, 1);
 						break;
 					case PAG_RUN:
-						SSD1306_Puts("RUN", &Font_11x18, 1);
+
+						switch(param_a_medir_global){
+
+						case RESISTENCIA:
+							SSD1306_Puts("RUN_R", &Font_11x18, 1);
+							break;
+						case CAPACITOR:
+							SSD1306_Puts("RUN_C", &Font_11x18, 1);
+							break;
+						default:
+							SSD1306_Puts("RUN", &Font_11x18, 1);
+							break;
+						}
 						break;
 				}
 				break;
@@ -1049,21 +1078,22 @@ void StartTask_PROCESSING(void *argument)
 {
   /* USER CODE BEGIN StartTask_PROCESSING */
 	uint8_t ADC_val;
-	osSemaphoreAcquire(myCountingSem01Handle, osWaitForever);
   /* Infinite loop */
   for(;;)
   {
+
 	  	  switch(param_a_medir_global){
-	  	  case 'R':
-	  		  HAL_ADC_Start(&hadc1);
-	  		  ADC_val = HAL_ADC_GetValue(&hadc1);
-	  		  HAL_ADC_Stop(&hadc1);
-	  		  if (ADC_val < ADC_95)
+			  case RESISTENCIA:
+//STAGE 1: CARGA DEL CIRCUITO DURANTE TAU=5*R_I*C
 
-	  		  break;
+				  break;
 
-	  	  case 'C':
-	  	  	  break;
+			  case CAPACITOR:
+				  break;
+
+			  case NONE:
+				  osSemaphoreAcquire(myCountingSem01Handle, osWaitForever);
+			  	  break;
 	  	  }
     osDelay(1);
   }
