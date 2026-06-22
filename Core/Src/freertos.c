@@ -54,6 +54,7 @@
 
 /* Hook prototypes */
 void vApplicationIdleHook(void);
+void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName);
 
 /* USER CODE BEGIN 2 */
 void vApplicationIdleHook( void )
@@ -70,6 +71,16 @@ void vApplicationIdleHook( void )
 	HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_8);
 }
 /* USER CODE END 2 */
+
+/* USER CODE BEGIN 4 */
+void vApplicationStackOverflowHook(xTaskHandle xTask, signed char *pcTaskName)
+{
+	uint8_t asdf = 0;// FUCKKKK OVERFLOWWWW
+   /* Run time stack overflow checking is performed if
+   configCHECK_FOR_STACK_OVERFLOW is defined to 1 or 2. This hook function is
+   called if a stack overflow is detected. */
+}
+/* USER CODE END 4 */
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */

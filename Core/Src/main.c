@@ -24,6 +24,8 @@
 /* USER CODE BEGIN Includes */
 #include "ssd1306.h"
 #include "fonts.h"
+#include "stdio.h"
+#include "string.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,12 +54,12 @@ typedef struct {
 } screenMsg_t;
 
 typedef struct {
-	uint16_t libre_DISPLAY;
-	uint16_t libre_GUI;
-	uint16_t libre_DIAGNOSTIC;
-	uint16_t libre_PROCESSING;
-	uint16_t libre_HEAP;
-	uint16_t FU;
+	uint32_t libre_DISPLAY;
+	uint32_t libre_GUI;
+	uint32_t libre_DIAGNOSTIC;
+	uint32_t libre_PROCESSING;
+	uint32_t libre_HEAP;
+	uint32_t FU;
 } diagnosticMsg_t;
 
 
@@ -125,6 +127,11 @@ typedef enum{
 #define SAMPLES (uint8_t)32
 #define ADC_TMAX_CAP (uint16_t)10000
 
+
+// Umbral error stack
+#define UMBRAL_STACK_MAX (uint16_t)65535 // por ahora vemos
+#define UMBRAL_STACK_MIN (uint16_t)0	// por ahora vemos
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -144,14 +151,14 @@ TIM_HandleTypeDef htim2;
 osThreadId_t task_DISPLAYHandle;
 const osThreadAttr_t task_DISPLAY_attributes = {
   .name = "task_DISPLAY",
-  .stack_size = 128 * 4,
+  .stack_size = 156 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for Task_GUI */
 osThreadId_t Task_GUIHandle;
 const osThreadAttr_t Task_GUI_attributes = {
   .name = "Task_GUI",
-  .stack_size = 128 * 4,
+  .stack_size = 100 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for Task_DIAGNOSTIC */
@@ -187,16 +194,17 @@ const osSemaphoreAttr_t myCountingSem01_attributes = {
 uint8_t param_a_medir_global;
 
 volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
-uint32_t libre_DISPLAY;
-uint32_t libre_GUI;
-uint32_t libre_DIAGNOSTIC;
-uint32_t libre_PROCESSING;
-uint32_t libre_HEAP;
-uint32_t FACU;
+//uint32_t libre_DISPLAY;
+//uint32_t libre_GUI;
+//uint32_t libre_DIAGNOSTIC;
+//uint32_t libre_PROCESSING;
+//uint32_t libre_HEAP;
+//uint32_t FACU;
 
 // Traemos los handlers que generó CubeMX para FreeRTOS (los nombres pueden variar según tu config)
 extern osMessageQueueId_t screenQueueHandle;
 //extern osSemaphoreId_t    medicionSemHandle;
+//diagnosticMsg_t diagnostic;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -280,10 +288,10 @@ int main(void)
 
   /* Create the queue(s) */
   /* creation of myQueue01 */
-  myQueue01Handle = osMessageQueueNew (16, sizeof(screenMsg_t), &myQueue01_attributes);
+  myQueue01Handle = osMessageQueueNew (8, sizeof(screenMsg_t), &myQueue01_attributes);
 
   /* creation of diag2display */
-  diag2displayHandle = osMessageQueueNew (16, sizeof(diagnosticMsg_t), &diag2display_attributes);
+  diag2displayHandle = osMessageQueueNew (8, sizeof(diagnosticMsg_t), &diag2display_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -896,6 +904,7 @@ void StartTask_DISPLAY(void *argument)
   /* USER CODE BEGIN 5 */
 	SSD1306_Init();
 	screenMsg_t msg_rec_GUI;
+	diagnosticMsg_t msg_rec_DIAG;
   /* Infinite loop */
   for(;;)
   {
@@ -931,18 +940,45 @@ void StartTask_DISPLAY(void *argument)
 				break;
 			case STATE_DIAGNOSTIC:
 //				SSD1306_Puts("Diagnostico", &Font_11x18, 1);
+
+//				if (osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0) == osOK){
+//				}
+				osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0);
+				char buffer[10];
 				switch (msg_rec_GUI.pagina) {
 				case PAG_T1:
-					SSD1306_Puts("T1", &Font_11x18, 1);
+					SSD1306_GotoXY(20, 10);
+					SSD1306_Puts("GUI", &Font_7x10, 1);
+					SSD1306_GotoXY(20, 40);
+					snprintf(buffer,sizeof(buffer),"WM: %lu",msg_rec_DIAG.libre_GUI);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_T2:
-					SSD1306_Puts("T2", &Font_11x18, 1);
+//					SSD1306_Puts("T2", &Font_11x18, 1);
+					SSD1306_GotoXY(20, 10);
+					SSD1306_Puts("DISPLAY", &Font_7x10, 1);
+					SSD1306_GotoXY(20, 40);
+					snprintf(buffer, sizeof(buffer), "WM: %lu",
+							msg_rec_DIAG.libre_DISPLAY);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_T3:
-					SSD1306_Puts("T3", &Font_11x18, 1);
+//					SSD1306_Puts("T3", &Font_11x18, 1);
+					SSD1306_GotoXY(20, 10);
+					SSD1306_Puts("DIAGNOSTIC", &Font_7x10, 1);
+					SSD1306_GotoXY(20, 40);
+					snprintf(buffer, sizeof(buffer), "WM: %lu",
+							msg_rec_DIAG.libre_DIAGNOSTIC);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_T4:
-					SSD1306_Puts("T4", &Font_11x18, 1);
+//					SSD1306_Puts("T4", &Font_11x18, 1);
+					SSD1306_GotoXY(20, 10);
+					SSD1306_Puts("PROCESSING", &Font_7x10, 1);
+					SSD1306_GotoXY(20, 40);
+					snprintf(buffer, sizeof(buffer), "WM: %lu",
+							msg_rec_DIAG.libre_PROCESSING);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_HEAP:
 					SSD1306_Puts("Heap", &Font_11x18, 1);
@@ -1043,15 +1079,15 @@ void StartTask_DIAGNOSTIC(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	// stack de tareas en Bytes
-	diagnostic.libre_DISPLAY = 4*osThreadGetStackSpace(task_DISPLAYHandle);
-	diagnostic.libre_GUI = 4*osThreadGetStackSpace(Task_GUIHandle);
-	diagnostic.libre_DIAGNOSTIC = 4*osThreadGetStackSpace(Task_DIAGNOSTICHandle);
-	diagnostic.libre_PROCESSING = 4*osThreadGetStackSpace(Task_PROCESSINGHandle);
+	// stack (water mark) de tareas en Bytes
+	diagnostic.libre_DISPLAY = osThreadGetStackSpace(task_DISPLAYHandle);
+	diagnostic.libre_GUI = osThreadGetStackSpace(Task_GUIHandle);
+	diagnostic.libre_DIAGNOSTIC = osThreadGetStackSpace(Task_DIAGNOSTICHandle);
+	diagnostic.libre_PROCESSING = osThreadGetStackSpace(Task_PROCESSINGHandle);
 
 	diagnostic.libre_HEAP = xPortGetFreeHeapSize();
 
-
+	osMessageQueuePut(diag2displayHandle, &diagnostic, 0, 0);
     osDelay(50);
   }
   /* USER CODE END StartTask_DIAGNOSTIC */
