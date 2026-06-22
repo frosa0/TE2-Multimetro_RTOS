@@ -29,6 +29,13 @@
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
 typedef enum{
+//	STAGE_NONE,
+	STAGE_1,
+	STAGE_2,
+	STAGE_3,
+	STAGE_4
+} stage_t;
+typedef enum{
 	NONE,
 	RESISTENCIA,
 	CAPACITOR
@@ -134,6 +141,7 @@ ADC_HandleTypeDef hadc2;
 I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
 
 /* Definitions for task_DISPLAY */
 osThreadId_t task_DISPLAYHandle;
@@ -174,6 +182,8 @@ const osSemaphoreAttr_t myCountingSem01_attributes = {
   .name = "myCountingSem01"
 };
 /* USER CODE BEGIN PV */
+uint8_t counter_global = 0;
+
 parametro_t param_a_medir_global = NONE;
 
 volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
@@ -196,6 +206,7 @@ static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_ADC2_Init(void);
+static void MX_TIM3_Init(void);
 void StartTask_DISPLAY(void *argument);
 void StartTask_GUI(void *argument);
 void StartTask_DIAGNOSTIC(void *argument);
@@ -244,6 +255,7 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM2_Init();
   MX_ADC2_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 //  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
   //SSD1306_Init();
@@ -533,6 +545,51 @@ static void MX_TIM2_Init(void)
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 0;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 11879;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
 
 }
 
@@ -1077,16 +1134,86 @@ void StartTask_DIAGNOSTIC(void *argument)
 void StartTask_PROCESSING(void *argument)
 {
   /* USER CODE BEGIN StartTask_PROCESSING */
-	uint8_t ADC_val;
+	uint8_t ADC_val = 0;
+	stage_t stage = STAGE_1;
+	uint8_t count_Nx = 0;
+	uint8_t count_Nc = 0;
+
+	uint8_t resultado = 0;
   /* Infinite loop */
   for(;;)
   {
+			switch (param_a_medir_global) {
+			case RESISTENCIA:
+				switch (stage) {
+					case STAGE_1:		//STAGE_1: CARGA DEL CIRCUITO DURANTE TAU=5*R_I*C
+						if(ADC_val == 0){
+							set_all_hiz();
+							adj_GPIO(STAGE_1_R);
 
-	  	  switch(param_a_medir_global){
-			  case RESISTENCIA:
-//STAGE 1: CARGA DEL CIRCUITO DURANTE TAU=5*R_I*C
+							HAL_ADC_Start(&hadc1);
+						}
 
-				  break;
+						ADC_val = HAL_ADC_GetValue(&hadc1);
+
+						if (ADC_val > ADC_95) {
+							stage = STAGE_2;
+							ADC_val = 0;
+
+							set_all_hiz();
+							adj_GPIO(STAGE_2_R);
+							HAL_TIM_Base_Start_IT(&htim3);
+						}
+						break;
+					case STAGE_2:		//STAGE_2: DESCARGA DEL RC Y MEDICIÓN DEL TIEMPO DE DESCARGA NX
+						ADC_val = HAL_ADC_GetValue(&hadc1);
+
+						if(ADC_val < ADC_02){
+							HAL_TIM_Base_Stop_IT(&htim3);
+
+							count_Nx = counter_global;
+							counter_global = 0;
+
+							set_all_hiz();
+							adj_GPIO(STAGE_3_R);
+
+							ADC_val = 0;
+							stage = STAGE_3;
+						}
+						break;
+					case STAGE_3:		//STAGE_3: CARGA DEL R_I*C NUEVAMENTE
+						ADC_val = HAL_ADC_GetValue(&hadc1);
+
+						if (ADC_val > ADC_95) {
+							stage = STAGE_4;
+							ADC_val = 0;
+
+							set_all_hiz();
+							adj_GPIO(STAGE_4_R);
+							HAL_TIM_Base_Start_IT(&htim3);
+						}
+						break;
+					case STAGE_4:		//STAGE_4: DESCARGA DEL RC Y MEDICIÓN DEL TIEMPO DE DESCARGA NC
+
+						ADC_val = HAL_ADC_GetValue(&hadc1);
+						if (ADC_val < ADC_02) {
+							HAL_TIM_Base_Stop_IT(&htim3);
+
+							count_Nc = counter_global;
+							counter_global = 0;
+
+							set_all_hiz();
+
+							ADC_val = 0;
+
+							stage = STAGE_1;
+							HAL_ADC_Stop(&hadc1);
+
+							resultado = (count_Nx/count_Nc)*330; //(Nx/Nc)*R_i
+						}
+						break;
+					}
+				break;
 
 			  case CAPACITOR:
 				  break;
@@ -1111,6 +1238,10 @@ void StartTask_PROCESSING(void *argument)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
+	if (htim->Instance == TIM3)
+	{
+		counter_global++;
+	}
 
   /* USER CODE END Callback 0 */
   if (htim->Instance == TIM4)
