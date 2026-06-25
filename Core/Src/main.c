@@ -19,7 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
-
+#include <stdio.h>
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "ssd1306.h"
@@ -176,14 +176,19 @@ osMessageQueueId_t myQueue01Handle;
 const osMessageQueueAttr_t myQueue01_attributes = {
   .name = "myQueue01"
 };
+/* Definitions for process2display */
+osMessageQueueId_t process2displayHandle;
+const osMessageQueueAttr_t process2display_attributes = {
+  .name = "process2display"
+};
 /* Definitions for myCountingSem01 */
 osSemaphoreId_t myCountingSem01Handle;
 const osSemaphoreAttr_t myCountingSem01_attributes = {
   .name = "myCountingSem01"
 };
 /* USER CODE BEGIN PV */
-uint8_t counter_global = 0;
-
+volatile uint8_t counter_global = 0;
+volatile uint16_t resultado_global = 0;
 parametro_t param_a_medir_global = NONE;
 
 volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
@@ -283,6 +288,9 @@ int main(void)
   /* Create the queue(s) */
   /* creation of myQueue01 */
   myQueue01Handle = osMessageQueueNew (16, sizeof(screenMsg_t), &myQueue01_attributes);
+
+  /* creation of process2display */
+  process2displayHandle = osMessageQueueNew (16, sizeof(uint16_t), &process2display_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -684,7 +692,9 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
             if (event == EVENT_PUSH) {
                 if (page == PAG_CONFIG)      { page = PAG_RES; next = STATE_SUBMENU; }
                 else if (page == PAG_DIAG) { page = PAG_T1; next = STATE_DIAGNOSTIC; }
-                else if (page == PAG_RUN) { next = STATE_RUN; }
+                else if (page == PAG_RUN) {
+
+                	next = STATE_RUN; }
             }
             if (event == EVENT_ERROR) next = STATE_ERROR;
             break;
@@ -952,10 +962,15 @@ void StartTask_DISPLAY(void *argument)
   /* USER CODE BEGIN 5 */
 	SSD1306_Init();
 	screenMsg_t msg_rec_GUI;
+	uint16_t resultado;
+	char buffer[20];
   /* Infinite loop */
   for(;;)
   {
-	  if(osMessageQueueGet(myQueue01Handle,&msg_rec_GUI, 0, 0) == osOK){
+
+
+	  if ((osMessageQueueGet(myQueue01Handle, &msg_rec_GUI, 0, 0) == osOK) ||
+	      (osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK)){
 		  SSD1306_GotoXY(20, 20);
 		  SSD1306_Clear();
 		  switch (msg_rec_GUI.estado) {
@@ -1022,9 +1037,17 @@ void StartTask_DISPLAY(void *argument)
 				}
 				break;
 
-			default:
+			case STATE_RUN:
+				osMessageQueueGet(process2displayHandle, &resultado, 0, 0);
+
+				SSD1306_GotoXY(20, 20);
+				SSD1306_Clear();
+				snprintf(buffer,sizeof(buffer),"%u",resultado);
+				SSD1306_Puts(buffer, &Font_7x10, 1);
+				SSD1306_UpdateScreen();
 				break;
 
+			default: break;
 		}
 		  SSD1306_UpdateScreen();
 	  }
@@ -1134,12 +1157,16 @@ void StartTask_DIAGNOSTIC(void *argument)
 void StartTask_PROCESSING(void *argument)
 {
   /* USER CODE BEGIN StartTask_PROCESSING */
-	uint8_t ADC_val = 0;
-	stage_t stage = STAGE_1;
-	uint8_t count_Nx = 0;
-	uint8_t count_Nc = 0;
+	volatile uint16_t ADC_val = 0;
+	volatile stage_t stage = STAGE_1;
+//	volatile uint8_t count_Nx = 0;
+//	volatile uint8_t count_Nc = 0;
+//	uint16_t resultado = 0;
 
-	uint8_t resultado = 0;
+	volatile float count_Nx = 0;
+	volatile float count_Nc = 0;
+	volatile uint16_t resultado = 0;
+
   /* Infinite loop */
   for(;;)
   {
@@ -1154,7 +1181,9 @@ void StartTask_PROCESSING(void *argument)
 							HAL_ADC_Start(&hadc1);
 						}
 
+						HAL_ADC_Start(&hadc1);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
+						HAL_ADC_Stop(&hadc1);
 
 						if (ADC_val > ADC_95) {
 							stage = STAGE_2;
@@ -1163,10 +1192,13 @@ void StartTask_PROCESSING(void *argument)
 							set_all_hiz();
 							adj_GPIO(STAGE_2_R);
 							HAL_TIM_Base_Start_IT(&htim3);
+
 						}
 						break;
 					case STAGE_2:		//STAGE_2: DESCARGA DEL RC Y MEDICIÓN DEL TIEMPO DE DESCARGA NX
+						HAL_ADC_Start(&hadc1);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
+						HAL_ADC_Stop(&hadc1);
 
 						if(ADC_val < ADC_02){
 							HAL_TIM_Base_Stop_IT(&htim3);
@@ -1182,7 +1214,9 @@ void StartTask_PROCESSING(void *argument)
 						}
 						break;
 					case STAGE_3:		//STAGE_3: CARGA DEL R_I*C NUEVAMENTE
+						HAL_ADC_Start(&hadc1);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
+						HAL_ADC_Stop(&hadc1);
 
 						if (ADC_val > ADC_95) {
 							stage = STAGE_4;
@@ -1195,7 +1229,10 @@ void StartTask_PROCESSING(void *argument)
 						break;
 					case STAGE_4:		//STAGE_4: DESCARGA DEL RC Y MEDICIÓN DEL TIEMPO DE DESCARGA NC
 
+						HAL_ADC_Start(&hadc1);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
+						HAL_ADC_Stop(&hadc1);
+
 						if (ADC_val < ADC_02) {
 							HAL_TIM_Base_Stop_IT(&htim3);
 
@@ -1209,7 +1246,9 @@ void StartTask_PROCESSING(void *argument)
 							stage = STAGE_1;
 							HAL_ADC_Stop(&hadc1);
 
-							resultado = (count_Nx/count_Nc)*330; //(Nx/Nc)*R_i
+							resultado = (count_Nx/count_Nc)*100; //(Nx/Nc)*R_i
+							resultado_global = resultado;
+							osMessageQueuePut(process2displayHandle, &resultado, 0, 0);
 						}
 						break;
 					}
