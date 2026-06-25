@@ -200,7 +200,7 @@ const osMessageQueueAttr_t myQueue01_attributes = {
 /* Definitions for process2display */
 osMessageQueueId_t process2displayHandle;
 const osMessageQueueAttr_t process2display_attributes = {
-  .name = "process2display"
+  .name = "process2display"};
 /* Definitions for diag2display */
 osMessageQueueId_t diag2displayHandle;
 const osMessageQueueAttr_t diag2display_attributes = {
@@ -1048,7 +1048,7 @@ void StartTask_DISPLAY(void *argument)
 //				if (osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0) == osOK){
 //				}
 				osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0);
-				char buffer[10];
+//				char buffer[10];
 				switch (msg_rec_GUI.pagina) {
 				case PAG_T1:
 					SSD1306_GotoXY(20, 10);
