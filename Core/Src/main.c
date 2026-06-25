@@ -19,7 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
-
+#include <stdio.h>
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "ssd1306.h"
@@ -30,6 +30,18 @@
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+typedef enum{
+//	STAGE_NONE,
+	STAGE_1,
+	STAGE_2,
+	STAGE_3,
+	STAGE_4
+} stage_t;
+typedef enum{
+	NONE,
+	RESISTENCIA,
+	CAPACITOR
+} parametro_t;
 
 typedef enum {
     STATE_IDLE,
@@ -150,6 +162,7 @@ ADC_HandleTypeDef hadc2;
 I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
 
 /* Definitions for task_DISPLAY */
 osThreadId_t task_DISPLAYHandle;
@@ -184,6 +197,10 @@ osMessageQueueId_t myQueue01Handle;
 const osMessageQueueAttr_t myQueue01_attributes = {
   .name = "myQueue01"
 };
+/* Definitions for process2display */
+osMessageQueueId_t process2displayHandle;
+const osMessageQueueAttr_t process2display_attributes = {
+  .name = "process2display"
 /* Definitions for diag2display */
 osMessageQueueId_t diag2displayHandle;
 const osMessageQueueAttr_t diag2display_attributes = {
@@ -195,7 +212,9 @@ const osSemaphoreAttr_t myCountingSem01_attributes = {
   .name = "myCountingSem01"
 };
 /* USER CODE BEGIN PV */
-uint8_t param_a_medir_global;
+volatile uint8_t counter_global = 0;
+volatile uint16_t resultado_global = 0;
+parametro_t param_a_medir_global = NONE;
 
 volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
 //uint32_t libre_DISPLAY;
@@ -218,6 +237,7 @@ static void MX_ADC1_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_ADC2_Init(void);
+static void MX_TIM3_Init(void);
 void StartTask_DISPLAY(void *argument);
 void StartTask_GUI(void *argument);
 void StartTask_DIAGNOSTIC(void *argument);
@@ -266,6 +286,7 @@ int main(void)
   MX_I2C1_Init();
   MX_TIM2_Init();
   MX_ADC2_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 //  HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
   //SSD1306_Init();
@@ -296,6 +317,9 @@ int main(void)
 
   /* creation of diag2display */
   diag2displayHandle = osMessageQueueNew (8, sizeof(diagnosticMsg_t), &diag2display_attributes);
+
+  /* creation of process2display */
+  process2displayHandle = osMessageQueueNew (16, sizeof(uint16_t), &process2display_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -562,6 +586,51 @@ static void MX_TIM2_Init(void)
 }
 
 /**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 0;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 11879;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
   * @brief GPIO Initialization Function
   * @param None
   * @retval None
@@ -635,6 +704,9 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 FSMState fsm_process_event(FSMState current, FSMEvent event) {
     FSMState next = current;
+//    RECORDAR USAR VARIABLE LOCAL PARA EVITAR LEER Y ESCRIBIR AL MISMO TIEMPO VARIABLE GLOBAL
+//    parametro_t param_a_medir_local;
+
     switch (current) {
         case STATE_IDLE:
             if (event == EVENT_PUSH) {
@@ -649,22 +721,31 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
             if (event == EVENT_PUSH) {
                 if (page == PAG_CONFIG)      { page = PAG_RES; next = STATE_SUBMENU; }
                 else if (page == PAG_DIAG) { page = PAG_T1; next = STATE_DIAGNOSTIC; }
-                else if (page == PAG_RUN) { next = STATE_RUN; }
+                else if (page == PAG_RUN) {
+
+                	next = STATE_RUN; }
             }
             if (event == EVENT_ERROR) next = STATE_ERROR;
             break;
 
         case STATE_SUBMENU:
-//            if (event == EVENT_H){
-////            	if (page == PAG_RES) page = PAG_CAP;
-////            	if (page == pag_cap) page = PAG_RES;
-//            }
             if (event == EVENT_H)  page = PAG_RES + (page-(PAG_RES-1) ) % 2;
             if (event == EVENT_AH) page = PAG_RES + (page-(PAG_RES-1) ) % 2; // Alterna entre 0 y 1
             if (event == EVENT_PUSH) {
                 // Acá podés guardar tu variable global: ej. tipo_medicion = subpage;
-                next = STATE_MENU;
-                page = PAG_CONFIG; //SE RESETEA LA PAGINA PORQUE SE SALE DEL SUBMENÚ AL MENÚ.
+				switch (page) {
+					case PAG_RES:
+						param_a_medir_global = RESISTENCIA;
+						//param_a_medir_local = RESISTENCIA;
+						break;
+					case PAG_CAP:
+						param_a_medir_global = CAPACITOR;
+						//param_a_medir_local = CAPACITOR;
+						break;
+					default: break;
+					}
+				next = STATE_MENU;
+				page = PAG_CONFIG; //SE RESETEA LA PAGINA PORQUE SE SALE DEL SUBMENÚ AL MENÚ.
             }
             if (event == EVENT_ERROR) next = STATE_ERROR;
             break;
@@ -693,6 +774,8 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
             break;
         default: break;
     }
+//    RECORDAR USAR VARIABLE LOCAL PARA EVITAR LEER Y ESCRIBIR AL MISMO TIEMPO VARIABLE GLOBAL
+//    param_a_medir_global = param_a_medir_local;
     return next;
 }
 
@@ -908,11 +991,16 @@ void StartTask_DISPLAY(void *argument)
   /* USER CODE BEGIN 5 */
 	SSD1306_Init();
 	screenMsg_t msg_rec_GUI;
+	uint16_t resultado;
+	char buffer[20];
 	diagnosticMsg_t msg_rec_DIAG;
   /* Infinite loop */
   for(;;)
   {
-	  if(osMessageQueueGet(myQueue01Handle,&msg_rec_GUI, 0, 0) == osOK){
+
+
+	  if ((osMessageQueueGet(myQueue01Handle, &msg_rec_GUI, 0, 0) == osOK) ||
+	      (osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK)){
 		  SSD1306_GotoXY(20, 20);
 		  SSD1306_Clear();
 		  switch (msg_rec_GUI.estado) {
@@ -926,7 +1014,19 @@ void StartTask_DISPLAY(void *argument)
 						SSD1306_Puts("Diagnos.", &Font_11x18, 1);
 						break;
 					case PAG_RUN:
-						SSD1306_Puts("RUN", &Font_11x18, 1);
+
+						switch(param_a_medir_global){
+
+						case RESISTENCIA:
+							SSD1306_Puts("RUN_R", &Font_11x18, 1);
+							break;
+						case CAPACITOR:
+							SSD1306_Puts("RUN_C", &Font_11x18, 1);
+							break;
+						default:
+							SSD1306_Puts("RUN", &Font_11x18, 1);
+							break;
+						}
 						break;
 				}
 				break;
@@ -994,9 +1094,17 @@ void StartTask_DISPLAY(void *argument)
 				}
 				break;
 
-			default:
+			case STATE_RUN:
+				osMessageQueueGet(process2displayHandle, &resultado, 0, 0);
+
+				SSD1306_GotoXY(20, 20);
+				SSD1306_Clear();
+				snprintf(buffer,sizeof(buffer),"%u",resultado);
+				SSD1306_Puts(buffer, &Font_7x10, 1);
+				SSD1306_UpdateScreen();
 				break;
 
+			default: break;
 		}
 		  SSD1306_UpdateScreen();
 	  }
@@ -1120,22 +1228,109 @@ void StartTask_DIAGNOSTIC(void *argument)
 void StartTask_PROCESSING(void *argument)
 {
   /* USER CODE BEGIN StartTask_PROCESSING */
-	uint8_t ADC_val;
-	osSemaphoreAcquire(myCountingSem01Handle, osWaitForever);
+	volatile uint16_t ADC_val = 0;
+	volatile stage_t stage = STAGE_1;
+//	volatile uint8_t count_Nx = 0;
+//	volatile uint8_t count_Nc = 0;
+//	uint16_t resultado = 0;
+
+	volatile float count_Nx = 0;
+	volatile float count_Nc = 0;
+	volatile uint16_t resultado = 0;
+
   /* Infinite loop */
   for(;;)
   {
-	  	  switch(param_a_medir_global){
-	  	  case 'R':
-	  		  HAL_ADC_Start(&hadc1);
-	  		  ADC_val = HAL_ADC_GetValue(&hadc1);
-	  		  HAL_ADC_Stop(&hadc1);
-	  		  if (ADC_val < ADC_95)
+			switch (param_a_medir_global) {
+			case RESISTENCIA:
+				switch (stage) {
+					case STAGE_1:		//STAGE_1: CARGA DEL CIRCUITO DURANTE TAU=5*R_I*C
+						if(ADC_val == 0){
+							set_all_hiz();
+							adj_GPIO(STAGE_1_R);
 
-	  		  break;
+							HAL_ADC_Start(&hadc1);
+						}
 
-	  	  case 'C':
-	  	  	  break;
+						HAL_ADC_Start(&hadc1);
+						ADC_val = HAL_ADC_GetValue(&hadc1);
+						HAL_ADC_Stop(&hadc1);
+
+						if (ADC_val > ADC_95) {
+							stage = STAGE_2;
+							ADC_val = 0;
+
+							set_all_hiz();
+							adj_GPIO(STAGE_2_R);
+							HAL_TIM_Base_Start_IT(&htim3);
+
+						}
+						break;
+					case STAGE_2:		//STAGE_2: DESCARGA DEL RC Y MEDICIÓN DEL TIEMPO DE DESCARGA NX
+						HAL_ADC_Start(&hadc1);
+						ADC_val = HAL_ADC_GetValue(&hadc1);
+						HAL_ADC_Stop(&hadc1);
+
+						if(ADC_val < ADC_02){
+							HAL_TIM_Base_Stop_IT(&htim3);
+
+							count_Nx = counter_global;
+							counter_global = 0;
+
+							set_all_hiz();
+							adj_GPIO(STAGE_3_R);
+
+							ADC_val = 0;
+							stage = STAGE_3;
+						}
+						break;
+					case STAGE_3:		//STAGE_3: CARGA DEL R_I*C NUEVAMENTE
+						HAL_ADC_Start(&hadc1);
+						ADC_val = HAL_ADC_GetValue(&hadc1);
+						HAL_ADC_Stop(&hadc1);
+
+						if (ADC_val > ADC_95) {
+							stage = STAGE_4;
+							ADC_val = 0;
+
+							set_all_hiz();
+							adj_GPIO(STAGE_4_R);
+							HAL_TIM_Base_Start_IT(&htim3);
+						}
+						break;
+					case STAGE_4:		//STAGE_4: DESCARGA DEL RC Y MEDICIÓN DEL TIEMPO DE DESCARGA NC
+
+						HAL_ADC_Start(&hadc1);
+						ADC_val = HAL_ADC_GetValue(&hadc1);
+						HAL_ADC_Stop(&hadc1);
+
+						if (ADC_val < ADC_02) {
+							HAL_TIM_Base_Stop_IT(&htim3);
+
+							count_Nc = counter_global;
+							counter_global = 0;
+
+							set_all_hiz();
+
+							ADC_val = 0;
+
+							stage = STAGE_1;
+							HAL_ADC_Stop(&hadc1);
+
+							resultado = (count_Nx/count_Nc)*100; //(Nx/Nc)*R_i
+							resultado_global = resultado;
+							osMessageQueuePut(process2displayHandle, &resultado, 0, 0);
+						}
+						break;
+					}
+				break;
+
+			  case CAPACITOR:
+				  break;
+
+			  case NONE:
+				  osSemaphoreAcquire(myCountingSem01Handle, osWaitForever);
+			  	  break;
 	  	  }
     osDelay(1);
   }
@@ -1153,6 +1348,10 @@ void StartTask_PROCESSING(void *argument)
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
+	if (htim->Instance == TIM3)
+	{
+		counter_global++;
+	}
 
   /* USER CODE END Callback 0 */
   if (htim->Instance == TIM4)
