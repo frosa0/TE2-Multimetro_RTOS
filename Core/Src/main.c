@@ -54,10 +54,14 @@ typedef struct {
 } screenMsg_t;
 
 typedef struct {
-	uint32_t libre_DISPLAY;
-	uint32_t libre_GUI;
-	uint32_t libre_DIAGNOSTIC;
-	uint32_t libre_PROCESSING;
+	uint32_t WaterMark_DISPLAY;
+	uint32_t WaterMark_GUI;
+	uint32_t WaterMark_DIAGNOSTIC;
+	uint32_t WaterMark_PROCESSING;
+	uint32_t stack_DISPLAY;
+	uint32_t stack_GUI;
+	uint32_t stack_DIAGNOSTIC;
+	uint32_t stack_PROCESSING;
 	uint32_t libre_HEAP;
 	uint32_t FU;
 } diagnosticMsg_t;
@@ -950,7 +954,7 @@ void StartTask_DISPLAY(void *argument)
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("GUI", &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
-					snprintf(buffer,sizeof(buffer),"WM: %lu",msg_rec_DIAG.libre_GUI);
+					snprintf(buffer,sizeof(buffer),"WM: %lu",msg_rec_DIAG.WaterMark_GUI);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_T2:
@@ -959,7 +963,7 @@ void StartTask_DISPLAY(void *argument)
 					SSD1306_Puts("DISPLAY", &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
 					snprintf(buffer, sizeof(buffer), "WM: %lu",
-							msg_rec_DIAG.libre_DISPLAY);
+							msg_rec_DIAG.WaterMark_DISPLAY);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_T3:
@@ -968,7 +972,7 @@ void StartTask_DISPLAY(void *argument)
 					SSD1306_Puts("DIAGNOSTIC", &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
 					snprintf(buffer, sizeof(buffer), "WM: %lu",
-							msg_rec_DIAG.libre_DIAGNOSTIC);
+							msg_rec_DIAG.WaterMark_DIAGNOSTIC);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_T4:
@@ -977,7 +981,7 @@ void StartTask_DISPLAY(void *argument)
 					SSD1306_Puts("PROCESSING", &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
 					snprintf(buffer, sizeof(buffer), "WM: %lu",
-							msg_rec_DIAG.libre_PROCESSING);
+							msg_rec_DIAG.WaterMark_PROCESSING);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_HEAP:
@@ -1076,14 +1080,27 @@ void StartTask_DIAGNOSTIC(void *argument)
 {
   /* USER CODE BEGIN StartTask_DIAGNOSTIC */
 	diagnosticMsg_t diagnostic;
-  /* Infinite loop */
+//	vTaskGetInfo(xTask, pxTaskStatus, xGetFreeStackSpace, eState)
+	TaskStatus_t xTaskDetails;
+	/* Infinite loop */
   for(;;)
   {
 	// stack (water mark) de tareas en Bytes
-	diagnostic.libre_DISPLAY = osThreadGetStackSpace(task_DISPLAYHandle);
-	diagnostic.libre_GUI = osThreadGetStackSpace(Task_GUIHandle);
-	diagnostic.libre_DIAGNOSTIC = osThreadGetStackSpace(Task_DIAGNOSTICHandle);
-	diagnostic.libre_PROCESSING = osThreadGetStackSpace(Task_PROCESSINGHandle);
+
+	diagnostic.WaterMark_DISPLAY = osThreadGetStackSpace(task_DISPLAYHandle);
+	vTaskGetInfo(task_DISPLAYHandle, &xTaskDetails, pdTRUE, eInvalid);
+
+	// 1. Obtenemos el "Top of Stack" engañando al compilador con un doble casteo de puntero
+	StackType_t *pxTopOfStack = *(StackType_t **)xTaskDetails.xHandle;
+	StackType_t *pxStartOfStack = xTaskDetails.pxStackBase;
+	uint32_t espacio_libre = (uint32_t)pxTopOfStack - (uint32_t)pxStartOfStack;
+
+
+//	xTaskDetails.xHandle->pxTopOfStack;
+//	diagnostic.stack_DISPLAY = (uint32_t)xTaskDetails.xHandle->pxTopOfStack - (uint32_t)xTaskDetails.xHandle->pxStack;
+	diagnostic.WaterMark_GUI = osThreadGetStackSpace(Task_GUIHandle);
+	diagnostic.WaterMark_DIAGNOSTIC = osThreadGetStackSpace(Task_DIAGNOSTICHandle);
+	diagnostic.WaterMark_PROCESSING = osThreadGetStackSpace(Task_PROCESSINGHandle);
 
 	diagnostic.libre_HEAP = xPortGetFreeHeapSize();
 
