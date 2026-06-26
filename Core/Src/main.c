@@ -19,13 +19,13 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "cmsis_os.h"
-#include <stdio.h>
+
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "ssd1306.h"
 #include "fonts.h"
+#include <string.h>
 #include "stdio.h"
-#include "string.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,19 +52,6 @@ typedef enum {
     STATE_ERROR
 } FSMState;
 
-typedef enum {
-    EVENT_NINGUNO,
-    EVENT_PUSH,
-    EVENT_H,
-    EVENT_AH,
-    EVENT_ERROR
-} FSMEvent;
-
-typedef struct {
-    FSMState estado;
-    uint8_t pagina;
-} screenMsg_t;
-
 typedef struct {
 	uint32_t WaterMark_DISPLAY;
 	uint32_t WaterMark_GUI;
@@ -78,6 +65,18 @@ typedef struct {
 	uint32_t FU;
 } diagnosticMsg_t;
 
+typedef enum {
+    EVENT_NINGUNO,
+    EVENT_PUSH,
+    EVENT_H,
+    EVENT_AH,
+    EVENT_ERROR
+} FSMEvent;
+
+typedef struct {
+    FSMState estado;
+    uint8_t pagina;
+} screenMsg_t;
 
 typedef enum {
 	PAG_CONFIG,		//0
@@ -143,11 +142,6 @@ typedef enum{
 #define SAMPLES (uint8_t)32
 #define ADC_TMAX_CAP (uint16_t)10000
 
-
-// Umbral error stack
-#define UMBRAL_STACK_MAX (uint16_t)65535 // por ahora vemos
-#define UMBRAL_STACK_MIN (uint16_t)0	// por ahora vemos
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -182,14 +176,14 @@ const osThreadAttr_t Task_GUI_attributes = {
 osThreadId_t Task_DIAGNOSTICHandle;
 const osThreadAttr_t Task_DIAGNOSTIC_attributes = {
   .name = "Task_DIAGNOSTIC",
-  .stack_size = 128 * 4,
+  .stack_size = 100 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for Task_PROCESSING */
 osThreadId_t Task_PROCESSINGHandle;
 const osThreadAttr_t Task_PROCESSING_attributes = {
   .name = "Task_PROCESSING",
-  .stack_size = 128 * 4,
+  .stack_size = 100 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for myQueue01 */
@@ -197,14 +191,15 @@ osMessageQueueId_t myQueue01Handle;
 const osMessageQueueAttr_t myQueue01_attributes = {
   .name = "myQueue01"
 };
-/* Definitions for process2display */
-osMessageQueueId_t process2displayHandle;
-const osMessageQueueAttr_t process2display_attributes = {
-  .name = "process2display"};
 /* Definitions for diag2display */
 osMessageQueueId_t diag2displayHandle;
 const osMessageQueueAttr_t diag2display_attributes = {
   .name = "diag2display"
+};
+/* Definitions for process2display */
+osMessageQueueId_t process2displayHandle;
+const osMessageQueueAttr_t process2display_attributes = {
+  .name = "process2display"
 };
 /* Definitions for myCountingSem01 */
 osSemaphoreId_t myCountingSem01Handle;
@@ -213,21 +208,22 @@ const osSemaphoreAttr_t myCountingSem01_attributes = {
 };
 /* USER CODE BEGIN PV */
 volatile uint8_t counter_global = 0;
+volatile float count_Nx_global = 0;
+volatile float count_Nc_global = 0;
 volatile uint16_t resultado_global = 0;
 parametro_t param_a_medir_global = NONE;
 
 volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
-//uint32_t libre_DISPLAY;
-//uint32_t libre_GUI;
-//uint32_t libre_DIAGNOSTIC;
-//uint32_t libre_PROCESSING;
-//uint32_t libre_HEAP;
-//uint32_t FACU;
+uint32_t libre_DISPLAY;
+uint32_t libre_GUI;
+uint32_t libre_DIAGNOSTIC;
+uint32_t libre_PROCESSING;
+uint32_t libre_HEAP;
+uint32_t FACU;
 
 // Traemos los handlers que generó CubeMX para FreeRTOS (los nombres pueden variar según tu config)
 extern osMessageQueueId_t screenQueueHandle;
 //extern osSemaphoreId_t    medicionSemHandle;
-//diagnosticMsg_t diagnostic;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -751,7 +747,10 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
             break;
 
         case STATE_RUN:
-            if (event == EVENT_PUSH)  next = STATE_MENU;
+            if (event == EVENT_PUSH){
+            	param_a_medir_global = NONE;
+            	next = STATE_MENU;
+            }
             if (event == EVENT_ERROR) next = STATE_ERROR;
             break;
 
@@ -824,9 +823,9 @@ FSMEvent Leer_Hardware_Encoder(void) {
 void callback_in(int tag){
 	switch (tag){
 	case TAG_TASK_DISPLAY: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_RESET); break;
-	case TAG_TASK_GUI: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_RESET); break;
-	case TAG_TASK_DIAGNOSTIC: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_RESET); break;
-	case TAG_TASK_PROCESSING: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_RESET); break;
+	case TAG_TASK_GUI: HAL_GPIO_WritePin(GPIO_HOOK_GUI, GPIO_HOOK_GUI_PIN, GPIO_PIN_RESET); break;
+	case TAG_TASK_DIAGNOSTIC: HAL_GPIO_WritePin(GPIO_HOOK_DIAGNOSTIC, GPIO_HOOK_DIAGNOSTIC_PIN, GPIO_PIN_RESET); break;
+	case TAG_TASK_PROCESSING: HAL_GPIO_WritePin(GPIO_HOOK_PROCESSING, GPIO_HOOK_PROCESSING_PIN, GPIO_PIN_RESET); break;
 	}
 }
 
@@ -834,9 +833,9 @@ void callback_out(int tag){
 
 	switch (tag){
 	case TAG_TASK_DISPLAY: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
-	case TAG_TASK_GUI: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
-	case TAG_TASK_DIAGNOSTIC: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
-	case TAG_TASK_PROCESSING: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
+	case TAG_TASK_GUI: HAL_GPIO_WritePin(GPIO_HOOK_GUI, GPIO_HOOK_GUI_PIN, GPIO_PIN_SET); break;
+	case TAG_TASK_DIAGNOSTIC: HAL_GPIO_WritePin(GPIO_HOOK_DIAGNOSTIC, GPIO_HOOK_DIAGNOSTIC_PIN, GPIO_PIN_SET); break;
+	case TAG_TASK_PROCESSING: HAL_GPIO_WritePin(GPIO_HOOK_PROCESSING, GPIO_HOOK_PROCESSING_PIN, GPIO_PIN_SET); break;
 	}
 }
 
@@ -989,11 +988,13 @@ void adj_GPIO(GPIO_CONFIG n) {
 void StartTask_DISPLAY(void *argument)
 {
   /* USER CODE BEGIN 5 */
+	vTaskSetApplicationTaskTag(NULL, (void *) TAG_TASK_DISPLAY);
+
 	SSD1306_Init();
 	screenMsg_t msg_rec_GUI;
-	uint16_t resultado;
+	diagnosticMsg_t msg_rec_DIAG = {0};
+	uint16_t resultado = 0;
 	char buffer[20];
-	diagnosticMsg_t msg_rec_DIAG;
   /* Infinite loop */
   for(;;)
   {
@@ -1043,59 +1044,73 @@ void StartTask_DISPLAY(void *argument)
 				}
 				break;
 			case STATE_DIAGNOSTIC:
-//				SSD1306_Puts("Diagnostico", &Font_11x18, 1);
-
-//				if (osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0) == osOK){
-//				}
 				osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0);
-//				char buffer[10];
+
 				switch (msg_rec_GUI.pagina) {
 				case PAG_T1:
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("GUI", &Font_7x10, 1);
-					SSD1306_GotoXY(20, 40);
+					SSD1306_GotoXY(20, 30);
 					snprintf(buffer,sizeof(buffer),"WM: %lu",msg_rec_DIAG.WaterMark_GUI);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
+					SSD1306_GotoXY(20, 40);
+					snprintf(buffer,sizeof(buffer),"STACK: %lu",msg_rec_DIAG.stack_GUI);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_T2:
 //					SSD1306_Puts("T2", &Font_11x18, 1);
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("DISPLAY", &Font_7x10, 1);
-					SSD1306_GotoXY(20, 40);
+					SSD1306_GotoXY(20, 30);
 					snprintf(buffer, sizeof(buffer), "WM: %lu",
 							msg_rec_DIAG.WaterMark_DISPLAY);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
+					SSD1306_GotoXY(20, 40);
+					snprintf(buffer,sizeof(buffer),"STACK: %lu",msg_rec_DIAG.stack_DISPLAY);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
+
 					break;
 				case PAG_T3:
 //					SSD1306_Puts("T3", &Font_11x18, 1);
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("DIAGNOSTIC", &Font_7x10, 1);
-					SSD1306_GotoXY(20, 40);
+					SSD1306_GotoXY(20, 30);
 					snprintf(buffer, sizeof(buffer), "WM: %lu",
 							msg_rec_DIAG.WaterMark_DIAGNOSTIC);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
+					SSD1306_GotoXY(20, 40);
+					snprintf(buffer,sizeof(buffer),"STACK: %lu",msg_rec_DIAG.stack_DIAGNOSTIC);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
+
 					break;
 				case PAG_T4:
 //					SSD1306_Puts("T4", &Font_11x18, 1);
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("PROCESSING", &Font_7x10, 1);
-					SSD1306_GotoXY(20, 40);
+					SSD1306_GotoXY(20, 30);
 					snprintf(buffer, sizeof(buffer), "WM: %lu",
 							msg_rec_DIAG.WaterMark_PROCESSING);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
+					SSD1306_GotoXY(20, 40);
+					snprintf(buffer,sizeof(buffer),"STACK: %lu",msg_rec_DIAG.stack_PROCESSING);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_HEAP:
-					SSD1306_Puts("Heap", &Font_11x18, 1);
+					SSD1306_GotoXY(20, 10);
+					SSD1306_Puts("Heap", &Font_7x10, 1);
+					SSD1306_GotoXY(20, 40);
+					snprintf(buffer, sizeof(buffer), "WM: %LU",msg_rec_DIAG.libre_HEAP);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_FACU:
-					SSD1306_Puts("FUCK YOU", &Font_11x18, 1);
+					SSD1306_Puts("FACU", &Font_11x18, 1);
 					break;
 
 				}
 				break;
 
 			case STATE_RUN:
-				osMessageQueueGet(process2displayHandle, &resultado, 0, 0);
+//				osMessageQueueGet(process2displayHandle, &resultado, 0, 0);
 
 				SSD1306_GotoXY(20, 20);
 				SSD1306_Clear();
@@ -1124,6 +1139,8 @@ void StartTask_DISPLAY(void *argument)
 void StartTask_GUI(void *argument)
 {
   /* USER CODE BEGIN StartTask_GUI */
+	vTaskSetApplicationTaskTag(NULL, (void *) TAG_TASK_GUI);
+
 	FSMState estado_actual = STATE_IDLE;
 	FSMState estado_anterior = STATE_ERROR; // Forzamos disparar el primer envío
 	FSMEvent evento = EVENT_NINGUNO;
@@ -1187,30 +1204,51 @@ void StartTask_GUI(void *argument)
 void StartTask_DIAGNOSTIC(void *argument)
 {
   /* USER CODE BEGIN StartTask_DIAGNOSTIC */
+	vTaskSetApplicationTaskTag(NULL, (void *) TAG_TASK_DIAGNOSTIC);
+
 	diagnosticMsg_t diagnostic;
 //	vTaskGetInfo(xTask, pxTaskStatus, xGetFreeStackSpace, eState)
 	TaskStatus_t xTaskDetails;
-	/* Infinite loop */
+	StackType_t *pxTopOfStack;
+	StackType_t *pxStartOfStack;
+  /* Infinite loop */
   for(;;)
   {
-	// stack (water mark) de tareas en Bytes
+		// watermark
+		diagnostic.WaterMark_DISPLAY = osThreadGetStackSpace(task_DISPLAYHandle);
+		// stack libre
+		vTaskGetInfo(task_DISPLAYHandle, &xTaskDetails, pdTRUE, eInvalid);
+		pxTopOfStack = *(StackType_t**) xTaskDetails.xHandle; //doble casteo de puntero
+		pxStartOfStack = xTaskDetails.pxStackBase;
+		diagnostic.stack_DISPLAY = (uint32_t) pxTopOfStack	- (uint32_t) pxStartOfStack;
 
-	diagnostic.WaterMark_DISPLAY = osThreadGetStackSpace(task_DISPLAYHandle);
-	vTaskGetInfo(task_DISPLAYHandle, &xTaskDetails, pdTRUE, eInvalid);
+		// watermark
+		diagnostic.WaterMark_DIAGNOSTIC = osThreadGetStackSpace(Task_DIAGNOSTICHandle);
+		// stack libre
+		vTaskGetInfo(Task_DIAGNOSTICHandle, &xTaskDetails, pdTRUE, eInvalid);
+		pxTopOfStack = *(StackType_t**) xTaskDetails.xHandle; //doble casteo de puntero
+		pxStartOfStack = xTaskDetails.pxStackBase;
+		diagnostic.stack_DIAGNOSTIC = (uint32_t) pxTopOfStack	- (uint32_t) pxStartOfStack;
 
-	// 1. Obtenemos el "Top of Stack" engañando al compilador con un doble casteo de puntero
-	StackType_t *pxTopOfStack = *(StackType_t **)xTaskDetails.xHandle;
-	StackType_t *pxStartOfStack = xTaskDetails.pxStackBase;
-	uint32_t espacio_libre = (uint32_t)pxTopOfStack - (uint32_t)pxStartOfStack;
+		// watermark
+		diagnostic.WaterMark_GUI = osThreadGetStackSpace(Task_GUIHandle);
+		// stack libre
+		vTaskGetInfo(Task_GUIHandle, &xTaskDetails, pdTRUE, eInvalid);
+		pxTopOfStack = *(StackType_t**) xTaskDetails.xHandle; //doble casteo de puntero
+		pxStartOfStack = xTaskDetails.pxStackBase;
+		diagnostic.stack_GUI = (uint32_t) pxTopOfStack	- (uint32_t) pxStartOfStack;
+
+		// watermark
+		diagnostic.WaterMark_PROCESSING = osThreadGetStackSpace(Task_PROCESSINGHandle);
+		// stack libre
+		vTaskGetInfo(Task_PROCESSINGHandle, &xTaskDetails, pdTRUE, eInvalid);
+		pxTopOfStack = *(StackType_t**) xTaskDetails.xHandle; //doble casteo de puntero
+		pxStartOfStack = xTaskDetails.pxStackBase;
+		diagnostic.stack_PROCESSING = (uint32_t) pxTopOfStack	- (uint32_t) pxStartOfStack;
 
 
-//	xTaskDetails.xHandle->pxTopOfStack;
-//	diagnostic.stack_DISPLAY = (uint32_t)xTaskDetails.xHandle->pxTopOfStack - (uint32_t)xTaskDetails.xHandle->pxStack;
-	diagnostic.WaterMark_GUI = osThreadGetStackSpace(Task_GUIHandle);
-	diagnostic.WaterMark_DIAGNOSTIC = osThreadGetStackSpace(Task_DIAGNOSTICHandle);
-	diagnostic.WaterMark_PROCESSING = osThreadGetStackSpace(Task_PROCESSINGHandle);
 
-	diagnostic.libre_HEAP = xPortGetFreeHeapSize();
+	libre_HEAP = xPortGetFreeHeapSize();
 
 	osMessageQueuePut(diag2displayHandle, &diagnostic, 0, 0);
     osDelay(50);
@@ -1228,6 +1266,8 @@ void StartTask_DIAGNOSTIC(void *argument)
 void StartTask_PROCESSING(void *argument)
 {
   /* USER CODE BEGIN StartTask_PROCESSING */
+	vTaskSetApplicationTaskTag(NULL, (void *) TAG_TASK_PROCESSING);
+
 	volatile uint16_t ADC_val = 0;
 	volatile stage_t stage = STAGE_1;
 //	volatile uint8_t count_Nx = 0;
@@ -1316,8 +1356,9 @@ void StartTask_PROCESSING(void *argument)
 
 							stage = STAGE_1;
 							HAL_ADC_Stop(&hadc1);
-
-							resultado = (count_Nx/count_Nc)*100; //(Nx/Nc)*R_i
+							count_Nx_global = count_Nx;
+							count_Nc_global = count_Nc;
+							resultado = ((count_Nx/count_Nc)*(float)10000); //(Nx/Nc)*R_c1
 							resultado_global = resultado;
 							osMessageQueuePut(process2displayHandle, &resultado, 0, 0);
 						}
