@@ -155,10 +155,12 @@ standard names. */
 	void callback_out(int);
 	#define traceTASK_SWITCHED_IN() callback_in((int)pxCurrentTCB->pxTaskTag)
 	#define traceTASK_SWITCHED_OUT() callback_out((int)pxCurrentTCB->pxTaskTag)
-	#define TAG_TASK_DISPLAY 0
+	#define TAG_TASK_IDLE 0
 	#define TAG_TASK_GUI 1
 	#define TAG_TASK_DIAGNOSTIC 2
 	#define TAG_TASK_PROCESSING 3
+	#define TAG_TASK_DISPLAY 4
+
 /* USER CODE END Defines */
 
 #endif /* FREERTOS_CONFIG_H */

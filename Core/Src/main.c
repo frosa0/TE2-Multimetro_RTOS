@@ -108,8 +108,16 @@ typedef enum{
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 
+// PERIODICAS
+#define DIAG_PERIODO_MS 50
+#define GUI_PERIODO_MS 20
+
+// FU
+#define SCALING_FACTOR (1000 / DIAG_PERIODO_MS)
 
 // HOOKS
+#define GPIO_HOOK_IDLE GPIOA
+#define GPIO_HOOK_IDLE_PIN GPIO_PIN_8
 #define GPIO_HOOK_DISPLAY GPIOB
 #define GPIO_HOOK_DISPLAY_PIN GPIO_PIN_15
 #define GPIO_HOOK_GUI GPIOB
@@ -142,6 +150,8 @@ typedef enum{
 #define SAMPLES (uint8_t)32
 #define ADC_TMAX_CAP (uint16_t)10000
 
+
+#define DEBOUNCE_DELAY 600
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -170,21 +180,21 @@ osThreadId_t Task_GUIHandle;
 const osThreadAttr_t Task_GUI_attributes = {
   .name = "Task_GUI",
   .stack_size = 100 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityBelowNormal,
 };
 /* Definitions for Task_DIAGNOSTIC */
 osThreadId_t Task_DIAGNOSTICHandle;
 const osThreadAttr_t Task_DIAGNOSTIC_attributes = {
   .name = "Task_DIAGNOSTIC",
   .stack_size = 100 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for Task_PROCESSING */
 osThreadId_t Task_PROCESSINGHandle;
 const osThreadAttr_t Task_PROCESSING_attributes = {
   .name = "Task_PROCESSING",
   .stack_size = 100 * 4,
-  .priority = (osPriority_t) osPriorityLow,
+  .priority = (osPriority_t) osPriorityAboveNormal,
 };
 /* Definitions for myQueue01 */
 osMessageQueueId_t myQueue01Handle;
@@ -214,14 +224,15 @@ volatile uint16_t resultado_global = 0;
 parametro_t param_a_medir_global = NONE;
 
 volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
-uint32_t libre_DISPLAY;
-uint32_t libre_GUI;
-uint32_t libre_DIAGNOSTIC;
-uint32_t libre_PROCESSING;
-uint32_t libre_HEAP;
-uint32_t FACU;
-
-// Traemos los handlers que generó CubeMX para FreeRTOS (los nombres pueden variar según tu config)
+//uint32_t libre_DISPLAY;
+//uint32_t libre_GUI;
+//uint32_t libre_DIAGNOSTIC;
+//uint32_t libre_PROCESSING;
+//uint32_t libre_HEAP;
+//uint32_t FACU;
+uint32_t ticks_idle_acumulados;
+uint32_t ticks_entrada_idle;
+uint32_t ticks_salida_idle;
 extern osMessageQueueId_t screenQueueHandle;
 //extern osSemaphoreId_t    medicionSemHandle;
 /* USER CODE END PV */
@@ -799,10 +810,16 @@ FSMEvent Leer_Hardware_Encoder(void) {
 
 	if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_12) == GPIO_PIN_RESET){
 //		HAL_Delay(300);
-		osDelay(300);
+//		osDelay(300);
+		static uint32_t last_time_pushed = 0;
+		uint32_t current_time = osKernelGetTickCount(); //
 
-		evento = EVENT_PUSH;
-		HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+		if (current_time - last_time_pushed > DEBOUNCE_DELAY){
+			evento = EVENT_PUSH;
+			HAL_GPIO_TogglePin(GPIOC, GPIO_PIN_13);
+			last_time_pushed = current_time;
+		}
+
 //		osDelay(50);
 //		HAL_Delay(30);
 	}
@@ -822,20 +839,29 @@ FSMEvent Leer_Hardware_Encoder(void) {
 
 void callback_in(int tag){
 	switch (tag){
-	case TAG_TASK_DISPLAY: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_RESET); break;
-	case TAG_TASK_GUI: HAL_GPIO_WritePin(GPIO_HOOK_GUI, GPIO_HOOK_GUI_PIN, GPIO_PIN_RESET); break;
-	case TAG_TASK_DIAGNOSTIC: HAL_GPIO_WritePin(GPIO_HOOK_DIAGNOSTIC, GPIO_HOOK_DIAGNOSTIC_PIN, GPIO_PIN_RESET); break;
-	case TAG_TASK_PROCESSING: HAL_GPIO_WritePin(GPIO_HOOK_PROCESSING, GPIO_HOOK_PROCESSING_PIN, GPIO_PIN_RESET); break;
-	}
-}
-
-void callback_out(int tag){
-
-	switch (tag){
+	case TAG_TASK_IDLE:
+		HAL_GPIO_WritePin(GPIO_HOOK_IDLE, GPIO_HOOK_IDLE_PIN, GPIO_PIN_SET);
+		// contamos la cantidad de ticks dentro de IDLE
+		ticks_entrada_idle = osKernelGetTickCount();
+		break;
 	case TAG_TASK_DISPLAY: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_SET); break;
 	case TAG_TASK_GUI: HAL_GPIO_WritePin(GPIO_HOOK_GUI, GPIO_HOOK_GUI_PIN, GPIO_PIN_SET); break;
 	case TAG_TASK_DIAGNOSTIC: HAL_GPIO_WritePin(GPIO_HOOK_DIAGNOSTIC, GPIO_HOOK_DIAGNOSTIC_PIN, GPIO_PIN_SET); break;
 	case TAG_TASK_PROCESSING: HAL_GPIO_WritePin(GPIO_HOOK_PROCESSING, GPIO_HOOK_PROCESSING_PIN, GPIO_PIN_SET); break;
+	}
+}
+
+void callback_out(int tag){
+	switch (tag){
+	case TAG_TASK_IDLE:
+		HAL_GPIO_WritePin(GPIO_HOOK_IDLE, GPIO_HOOK_IDLE_PIN, GPIO_PIN_RESET);
+		ticks_salida_idle = osKernelGetTickCount();
+		if (ticks_salida_idle >= ticks_entrada_idle){ticks_idle_acumulados += (ticks_salida_idle - ticks_entrada_idle);}
+		break;
+	case TAG_TASK_DISPLAY: HAL_GPIO_WritePin(GPIO_HOOK_DISPLAY, GPIO_HOOK_DISPLAY_PIN, GPIO_PIN_RESET); break;
+	case TAG_TASK_GUI: HAL_GPIO_WritePin(GPIO_HOOK_GUI, GPIO_HOOK_GUI_PIN, GPIO_PIN_RESET); break;
+	case TAG_TASK_DIAGNOSTIC: HAL_GPIO_WritePin(GPIO_HOOK_DIAGNOSTIC, GPIO_HOOK_DIAGNOSTIC_PIN, GPIO_PIN_RESET); break;
+	case TAG_TASK_PROCESSING: HAL_GPIO_WritePin(GPIO_HOOK_PROCESSING, GPIO_HOOK_PROCESSING_PIN, GPIO_PIN_RESET); break;
 	}
 }
 
@@ -1048,6 +1074,7 @@ void StartTask_DISPLAY(void *argument)
 
 				switch (msg_rec_GUI.pagina) {
 				case PAG_T1:
+					// GUI
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("GUI", &Font_7x10, 1);
 					SSD1306_GotoXY(20, 30);
@@ -1058,6 +1085,7 @@ void StartTask_DISPLAY(void *argument)
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_T2:
+					// DISPLAY
 //					SSD1306_Puts("T2", &Font_11x18, 1);
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("DISPLAY", &Font_7x10, 1);
@@ -1071,6 +1099,7 @@ void StartTask_DISPLAY(void *argument)
 
 					break;
 				case PAG_T3:
+					//DIAGNOSTICO
 //					SSD1306_Puts("T3", &Font_11x18, 1);
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("DIAGNOSTIC", &Font_7x10, 1);
@@ -1084,6 +1113,7 @@ void StartTask_DISPLAY(void *argument)
 
 					break;
 				case PAG_T4:
+					//PROCESSING
 //					SSD1306_Puts("T4", &Font_11x18, 1);
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("PROCESSING", &Font_7x10, 1);
@@ -1099,11 +1129,15 @@ void StartTask_DISPLAY(void *argument)
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("Heap", &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
-					snprintf(buffer, sizeof(buffer), "WM: %LU",msg_rec_DIAG.libre_HEAP);
+					snprintf(buffer, sizeof(buffer), "%lu",msg_rec_DIAG.libre_HEAP);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_FACU:
-					SSD1306_Puts("FACU", &Font_11x18, 1);
+					SSD1306_GotoXY(20, 10);
+					SSD1306_Puts("FACU", &Font_7x10, 1);
+					SSD1306_GotoXY(20, 40);
+					snprintf(buffer, sizeof(buffer), "%lu",msg_rec_DIAG.FU);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 
 				}
@@ -1124,7 +1158,7 @@ void StartTask_DISPLAY(void *argument)
 		  SSD1306_UpdateScreen();
 	  }
 
-    osDelay(1);
+    osDelay(100); //20 fps -> 1/20 = 50ms
   }
   /* USER CODE END 5 */
 }
@@ -1160,7 +1194,7 @@ void StartTask_GUI(void *argument)
 //			evento = EVENT_ERROR;
 //			Alerta_Diagnostico_Activa = 0;
 //		}
-		osDelay(30);
+//		osDelay(20);
 
 		// 3. Si pasó algo, procesamos y notificamos
 		if (evento != EVENT_NINGUNO) {
@@ -1188,7 +1222,7 @@ void StartTask_GUI(void *argument)
 		}
 
 		// 30ms de Delay: Filtra rebotes y asegura respuestas menores a 20ms
-		osDelay(30);
+		osDelay(GUI_PERIODO_MS);
 
   }
   /* USER CODE END StartTask_GUI */
@@ -1206,11 +1240,17 @@ void StartTask_DIAGNOSTIC(void *argument)
   /* USER CODE BEGIN StartTask_DIAGNOSTIC */
 	vTaskSetApplicationTaskTag(NULL, (void *) TAG_TASK_DIAGNOSTIC);
 
-	diagnosticMsg_t diagnostic;
+	diagnosticMsg_t diagnostic = {0};
 //	vTaskGetInfo(xTask, pxTaskStatus, xGetFreeStackSpace, eState)
 	TaskStatus_t xTaskDetails;
 	StackType_t *pxTopOfStack;
 	StackType_t *pxStartOfStack;
+
+	// FU
+	uint32_t copia_ticks_idle = 0;
+	uint32_t factor_utilidad = 0;
+	uint32_t factor_promedio = 0;
+	uint32_t fu_entero = 0;
   /* Infinite loop */
   for(;;)
   {
@@ -1247,11 +1287,29 @@ void StartTask_DIAGNOSTIC(void *argument)
 		diagnostic.stack_PROCESSING = (uint32_t) pxTopOfStack	- (uint32_t) pxStartOfStack;
 
 
+		diagnostic.libre_HEAP = xPortGetFreeHeapSize(); // ya en bytes
 
-	libre_HEAP = xPortGetFreeHeapSize();
+
+		// 1. Limpieza y Clamping
+		copia_ticks_idle = ticks_idle_acumulados;
+		ticks_idle_acumulados = 0;
+
+		if (copia_ticks_idle > 50) copia_ticks_idle = 50; // Límite ahora es 50 ticks
+
+		// 2. Cálculo de utilización
+		// Antes multiplicabas por 10 (base 100). Ahora, para llegar a base 1000:
+		// (copia_ticks_idle / 50) * 1000  =>  equivale a  (copia_ticks_idle * 20)
+		factor_utilidad = 1000 - (copia_ticks_idle * 20);
+
+		// El resto del filtro EMA sigue igual:
+		factor_promedio = ((factor_utilidad * 1) + (factor_promedio * 9)) / 10;
+		fu_entero = factor_promedio / 10;
+
+		diagnostic.FU = fu_entero;
+//	libre_HEAP = xPortGetFreeHeapSize();
 
 	osMessageQueuePut(diag2displayHandle, &diagnostic, 0, 0);
-    osDelay(50);
+    osDelay(DIAG_PERIODO_MS);
   }
   /* USER CODE END StartTask_DIAGNOSTIC */
 }
