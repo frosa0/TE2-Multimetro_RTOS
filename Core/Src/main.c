@@ -217,7 +217,7 @@ const osSemaphoreAttr_t myCountingSem01_attributes = {
   .name = "myCountingSem01"
 };
 /* USER CODE BEGIN PV */
-volatile uint8_t counter_global = 0;
+volatile uint32_t counter_global = 0;
 volatile float count_Nx_global = 0;
 volatile float count_Nc_global = 0;
 volatile uint16_t resultado_global = 0;
@@ -451,7 +451,7 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -613,7 +613,7 @@ static void MX_TIM3_Init(void)
   htim3.Instance = TIM3;
   htim3.Init.Prescaler = 0;
   htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim3.Init.Period = 11879;
+  htim3.Init.Period = 1151;
   htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
@@ -1351,6 +1351,7 @@ void StartTask_PROCESSING(void *argument)
 						}
 
 						HAL_ADC_Start(&hadc1);
+						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
 						HAL_ADC_Stop(&hadc1);
 
@@ -1365,7 +1366,16 @@ void StartTask_PROCESSING(void *argument)
 						}
 						break;
 					case STAGE_2:		//STAGE_2: DESCARGA DEL RC Y MEDICIÓN DEL TIEMPO DE DESCARGA NX
+
+						// Primer if soluciona problemas offset (maso)
+						if (ADC_val == 0){  					//
+							ADC_val = 1;						//
+							counter_global = 0;					//
+							__HAL_TIM_SET_COUNTER(&htim3, 0); 	// resetea timer
+						}
+
 						HAL_ADC_Start(&hadc1);
+						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
 						HAL_ADC_Stop(&hadc1);
 
@@ -1384,6 +1394,7 @@ void StartTask_PROCESSING(void *argument)
 						break;
 					case STAGE_3:		//STAGE_3: CARGA DEL R_I*C NUEVAMENTE
 						HAL_ADC_Start(&hadc1);
+						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
 						HAL_ADC_Stop(&hadc1);
 
@@ -1398,7 +1409,15 @@ void StartTask_PROCESSING(void *argument)
 						break;
 					case STAGE_4:		//STAGE_4: DESCARGA DEL RC Y MEDICIÓN DEL TIEMPO DE DESCARGA NC
 
+						// Primer if soluciona problemas offset (maso)
+						if (ADC_val == 0) {  					//
+							ADC_val = 1;						//
+							counter_global = 0;					//
+						__HAL_TIM_SET_COUNTER(&htim3, 0); 	// resetea timer
+						}
+
 						HAL_ADC_Start(&hadc1);
+						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
 						HAL_ADC_Stop(&hadc1);
 
