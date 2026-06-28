@@ -326,7 +326,7 @@ int main(void)
   diag2displayHandle = osMessageQueueNew (8, sizeof(diagnosticMsg_t), &diag2display_attributes);
 
   /* creation of process2display */
-  process2displayHandle = osMessageQueueNew (16, sizeof(uint16_t), &process2display_attributes);
+  process2displayHandle = osMessageQueueNew (2, sizeof(uint16_t), &process2display_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -662,7 +662,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(GPIOB, Hook_PROCESSING_Pin|Hook_DIAGNOSTIC_Pin|Hook_GUI_Pin|Hook_DISPLAY_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(Hook_IDLE_GPIO_Port, Hook_IDLE_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, Hook_IDLE_Pin|GPIO_PIN_9, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : PC13 */
   GPIO_InitStruct.Pin = GPIO_PIN_13;
@@ -690,12 +690,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : Hook_IDLE_Pin */
-  GPIO_InitStruct.Pin = Hook_IDLE_Pin;
+  /*Configure GPIO pins : Hook_IDLE_Pin PA9 */
+  GPIO_InitStruct.Pin = Hook_IDLE_Pin|GPIO_PIN_9;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(Hook_IDLE_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : Encoder_PUSH_Pin */
   GPIO_InitStruct.Pin = Encoder_PUSH_Pin;
@@ -1348,6 +1348,11 @@ void StartTask_PROCESSING(void *argument)
 							adj_GPIO(STAGE_1_R);
 
 							HAL_ADC_Start(&hadc1);
+
+							// pico para saber cuanto tarda en completar la etapa
+							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+
 						}
 
 						HAL_ADC_Start(&hadc1);
@@ -1437,7 +1442,12 @@ void StartTask_PROCESSING(void *argument)
 							count_Nc_global = count_Nc;
 							resultado = ((count_Nx/count_Nc)*(float)10000); //(Nx/Nc)*R_c1
 							resultado_global = resultado;
+
+							// pico para saber cuanto tarda en completar la etapa
+							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
 							osMessageQueuePut(process2displayHandle, &resultado, 0, 0);
+//							osDelay();
 						}
 						break;
 					}
