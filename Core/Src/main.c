@@ -437,7 +437,7 @@ static void MX_ADC1_Init(void)
   */
   hadc1.Instance = ADC1;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
@@ -1335,6 +1335,7 @@ void StartTask_PROCESSING(void *argument)
 	volatile float count_Nx = 0;
 	volatile float count_Nc = 0;
 	volatile uint16_t resultado = 0;
+	HAL_ADC_Start(&hadc1);
 
   /* Infinite loop */
   for(;;)
@@ -1347,18 +1348,14 @@ void StartTask_PROCESSING(void *argument)
 							set_all_hiz();
 							adj_GPIO(STAGE_1_R);
 
-							HAL_ADC_Start(&hadc1);
-
 							// pico para saber cuanto tarda en completar la etapa
 							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
 							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
 
 						}
 
-						HAL_ADC_Start(&hadc1);
 						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
-						HAL_ADC_Stop(&hadc1);
 
 						if (ADC_val > ADC_95) {
 							stage = STAGE_2;
@@ -1379,10 +1376,7 @@ void StartTask_PROCESSING(void *argument)
 							__HAL_TIM_SET_COUNTER(&htim3, 0); 	// resetea timer
 						}
 
-						HAL_ADC_Start(&hadc1);
-						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
-						HAL_ADC_Stop(&hadc1);
 
 						if(ADC_val < ADC_02){
 							HAL_TIM_Base_Stop_IT(&htim3);
@@ -1398,10 +1392,8 @@ void StartTask_PROCESSING(void *argument)
 						}
 						break;
 					case STAGE_3:		//STAGE_3: CARGA DEL R_I*C NUEVAMENTE
-						HAL_ADC_Start(&hadc1);
-						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+
 						ADC_val = HAL_ADC_GetValue(&hadc1);
-						HAL_ADC_Stop(&hadc1);
 
 						if (ADC_val > ADC_95) {
 							stage = STAGE_4;
@@ -1421,10 +1413,7 @@ void StartTask_PROCESSING(void *argument)
 						__HAL_TIM_SET_COUNTER(&htim3, 0); 	// resetea timer
 						}
 
-						HAL_ADC_Start(&hadc1);
-						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
-						HAL_ADC_Stop(&hadc1);
 
 						if (ADC_val < ADC_02) {
 							HAL_TIM_Base_Stop_IT(&htim3);
@@ -1437,7 +1426,6 @@ void StartTask_PROCESSING(void *argument)
 							ADC_val = 0;
 
 							stage = STAGE_1;
-							HAL_ADC_Stop(&hadc1);
 							count_Nx_global = count_Nx;
 							count_Nc_global = count_Nc;
 							resultado = ((count_Nx/count_Nc)*(float)10000); //(Nx/Nc)*R_c1
