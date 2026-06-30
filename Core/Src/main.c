@@ -52,6 +52,16 @@ typedef enum {
     STATE_ERROR
 } FSMState;
 
+typedef enum{
+	alerta_NONE,
+	alerta_StackDISPLAY,
+	alerta_StackGUI,
+	alerta_StackDIAGNOSTIC,
+	alerta_StackPROCESSING,
+	alerta_HEAP,
+	alerta_FU
+} codigoERROR;
+
 typedef struct {
 	uint32_t WaterMark_DISPLAY;
 	uint32_t WaterMark_GUI;
@@ -64,6 +74,10 @@ typedef struct {
 	uint32_t libre_HEAP;
 	uint32_t FU;
 } diagnosticMsg_t;
+
+typedef struct{
+	uint8_t error;
+} alertaMsg_t;
 
 typedef enum {
     EVENT_NINGUNO,
@@ -150,6 +164,8 @@ typedef enum{
 #define SAMPLES (uint8_t)32
 #define ADC_TMAX_CAP (uint16_t)10000
 
+//PARA ALARMA HEAP, STACK y FU
+//#define STACK_MAX (uint16_t)10 // Task_PROCESSING_attributes.stack_size/10
 
 #define DEBOUNCE_DELAY 600
 
@@ -214,6 +230,11 @@ const osMessageQueueAttr_t diag2display_attributes = {
 osMessageQueueId_t process2displayHandle;
 const osMessageQueueAttr_t process2display_attributes = {
   .name = "process2display"
+};
+/* Definitions for alerta */
+osMessageQueueId_t alertaHandle;
+const osMessageQueueAttr_t alerta_attributes = {
+  .name = "alerta"
 };
 /* Definitions for myCountingSem01 */
 osSemaphoreId_t myCountingSem01Handle;
@@ -333,6 +354,9 @@ int main(void)
 
   /* creation of process2display */
   process2displayHandle = osMessageQueueNew (2, sizeof(uint16_t), &process2display_attributes);
+
+  /* creation of alerta */
+  alertaHandle = osMessageQueueNew (2, sizeof(alertaMsg_t), &alerta_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -1013,13 +1037,36 @@ uint8_t SSD1306_remap(uint16_t value){
 	uint8_t SSD1306_Y_MAX = DIV_4(SSD1306_HEIGHT) + padding; //20
 	uint8_t SSD1306_Y_MIN = SSD1306_HEIGHT - padding; // 60
 
-	uint16_t Y_MAX = 12000; // pruebas con potenciometro 10K
+	uint16_t Y_MAX = 1200; // pruebas con potenciometro 10K
 
 	// remapear valor a rango nuevo
 	// remap = (V-Min_original) x (MAX_nuevo - Min_nuevo) / (MAX_original - Min_original) + Min_nuevo
 	float remap = (float)value *(SSD1306_Y_MAX - SSD1306_Y_MIN)/Y_MAX + SSD1306_Y_MIN;
 	return (uint8_t)remap;
 }
+
+uint8_t devolverERROR(diagnosticMsg_t diag){
+	if((task_DISPLAY_attributes.stack_size - diag.stack_DISPLAY) < (task_DISPLAY_attributes.stack_size/10)){
+		return alerta_StackDISPLAY;
+	}
+	if((Task_GUI_attributes.stack_size - diag.stack_PROCESSING) < (Task_GUI_attributes.stack_size/10)){
+		return alerta_StackGUI;
+	}
+	if((Task_DIAGNOSTIC_attributes.stack_size - diag.stack_PROCESSING) < (Task_DIAGNOSTIC_attributes.stack_size/10)){
+		return alerta_StackDIAGNOSTIC;
+	}
+	if((Task_PROCESSING_attributes.stack_size - diag.stack_PROCESSING) < (Task_PROCESSING_attributes.stack_size/10)){
+		return alerta_StackPROCESSING;
+	}
+	if(diag.libre_HEAP <= 100){
+		return alerta_HEAP;
+	}
+	if(diag.FU >= 69){
+		return alerta_FU;
+	}
+	return 0;
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartTask_DISPLAY */
@@ -1037,6 +1084,7 @@ void StartTask_DISPLAY(void *argument)
 	SSD1306_Init();
 	screenMsg_t msg_rec_GUI;
 	diagnosticMsg_t msg_rec_DIAG = {0};
+	alertaMsg_t msg_alerta = {0};
 	uint16_t resultado = 0;
 	char buffer[20];
 	uint8_t buffer_graph[SSD1306_WIDTH];
@@ -1046,12 +1094,44 @@ void StartTask_DISPLAY(void *argument)
   /* Infinite loop */
   for(;;)
   {
-
-
-	  if ((osMessageQueueGet(myQueue01Handle, &msg_rec_GUI, 0, 0) == osOK) ||
-	      (osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK)){
+	  if (osMessageQueueGet(alertaHandle, &msg_alerta, 0, 0) == osOK){
 		  SSD1306_GotoXY(20, 20);
 		  SSD1306_Clear();
+
+		  switch(msg_alerta.error){
+		  case alerta_StackDISPLAY:
+			  SSD1306_Puts("alerta_StackDISPLAY", &Font_11x18, 1);
+			  break;
+		  case alerta_StackGUI:
+			  SSD1306_Puts("alerta_StackGUI", &Font_11x18, 1);
+			  break;
+		  case alerta_StackDIAGNOSTIC:
+			  SSD1306_Puts("alerta_StackDIAGNOSTIC", &Font_11x18, 1);
+			  break;
+		  case alerta_StackPROCESSING:
+			  SSD1306_Puts("alerta_StackPROCESSING", &Font_11x18, 1);
+			  break;
+		  case alerta_HEAP:
+			  SSD1306_Puts("alerta_HEAP", &Font_11x18, 1);
+			  break;
+		  case alerta_FU:
+			  SSD1306_Puts("alerta_FU", &Font_11x18, 1);
+			  break;
+		  }
+	  }
+	  else if ((osMessageQueueGet(myQueue01Handle, &msg_rec_GUI, 0, 0) == osOK) ||
+	      (osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK)){
+
+		  SSD1306_GotoXY(20, 20);
+		  SSD1306_Clear();
+
+//		  if(msg_alerta.alerta_StackDIAGNOSTIC != 0 ||
+//			 msg_alerta.alerta_StackDISPLAY != 0 ||
+//			 msg_alerta.alerta_StackGUI != 0 ||
+//			 msg_alerta.alerta_StackPROCESSING != 0){
+//				SSD1306_Puts("alerta_Stack", &Font_11x18, 1);
+//		  }
+
 		  switch (msg_rec_GUI.estado) {
 			case STATE_MENU:
 				//SSD1306_Puts("MENU", &Font_11x18, 1);
@@ -1204,7 +1284,7 @@ void StartTask_DISPLAY(void *argument)
 		  SSD1306_UpdateScreen();
 	  }
 
-    osDelay(100); //20 fps -> 1/20 = 50ms
+    osDelay(50); //20 fps -> 1/20 = 50ms
   }
   /* USER CODE END 5 */
 }
@@ -1287,6 +1367,7 @@ void StartTask_DIAGNOSTIC(void *argument)
 	vTaskSetApplicationTaskTag(NULL, (void *) TAG_TASK_DIAGNOSTIC);
 
 	diagnosticMsg_t diagnostic = {0};
+	alertaMsg_t alerta = {0};
 //	vTaskGetInfo(xTask, pxTaskStatus, xGetFreeStackSpace, eState)
 	TaskStatus_t xTaskDetails;
 	StackType_t *pxTopOfStack;
@@ -1336,9 +1417,11 @@ void StartTask_DIAGNOSTIC(void *argument)
 		diagnostic.libre_HEAP = xPortGetFreeHeapSize(); // ya en bytes
 
 
+
+
 		// 1. Limpieza y Clamping
 		copia_ticks_idle = ticks_idle_acumulados;
-		ticks_idle_acumulados = 0;
+		ticks_idle_acumulados = 0; //resetea la variable que marca los ticks al salir de callback_out
 
 		if (copia_ticks_idle > 50) copia_ticks_idle = 50; // Límite ahora es 50 ticks
 
@@ -1352,10 +1435,15 @@ void StartTask_DIAGNOSTIC(void *argument)
 		fu_entero = factor_promedio / 10;
 
 		diagnostic.FU = fu_entero;
-//	libre_HEAP = xPortGetFreeHeapSize();
 
-	osMessageQueuePut(diag2displayHandle, &diagnostic, 0, 0);
-    osDelay(DIAG_PERIODO_MS);
+
+
+//		alerta.error = devolverERROR(diagnostic);
+
+		if((alerta.error = devolverERROR(diagnostic)) != alerta_NONE)	osMessageQueuePut(alertaHandle, &alerta, 0, 0);
+
+		osMessageQueuePut(diag2displayHandle, &diagnostic, 0, 0);
+		osDelay(DIAG_PERIODO_MS);
   }
   /* USER CODE END StartTask_DIAGNOSTIC */
 }
