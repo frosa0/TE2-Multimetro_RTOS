@@ -152,6 +152,10 @@ typedef enum{
 
 
 #define DEBOUNCE_DELAY 600
+
+#define DIV_2(x) ((x) >> 1)
+#define DIV_4(x) ((x) >> 2)
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -172,7 +176,7 @@ TIM_HandleTypeDef htim3;
 osThreadId_t task_DISPLAYHandle;
 const osThreadAttr_t task_DISPLAY_attributes = {
   .name = "task_DISPLAY",
-  .stack_size = 156 * 4,
+  .stack_size = 190 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
 /* Definitions for Task_GUI */
@@ -253,6 +257,8 @@ void StartTask_PROCESSING(void *argument);
 /* USER CODE BEGIN PFP */
 FSMState fsm_process_event(FSMState current, FSMEvent event);
 FSMEvent Leer_Hardware_Encoder(void);
+uint8_t SSD1306_remap(uint16_t value);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -908,7 +914,6 @@ void set_all_hiz() {
 	HAL_GPIO_Init(GPIO_Ri_C, &GPIO_InitStruct);
 }
 
-
 void adj_GPIO(GPIO_CONFIG n) {
 
 	GPIO_InitTypeDef GPIO_InitStruct;
@@ -1002,6 +1007,19 @@ void adj_GPIO(GPIO_CONFIG n) {
 		break;
 	};
 }
+
+uint8_t SSD1306_remap(uint16_t value){
+	uint8_t padding = 4; //porque si por ahora
+	uint8_t SSD1306_Y_MAX = DIV_4(SSD1306_HEIGHT) + padding; //20
+	uint8_t SSD1306_Y_MIN = SSD1306_HEIGHT - padding; // 60
+
+	uint16_t Y_MAX = 12000; // pruebas con potenciometro 10K
+
+	// remapear valor a rango nuevo
+	// remap = (V-Min_original) x (MAX_nuevo - Min_nuevo) / (MAX_original - Min_original) + Min_nuevo
+	float remap = (float)value *(SSD1306_Y_MAX - SSD1306_Y_MIN)/Y_MAX + SSD1306_Y_MIN;
+	return (uint8_t)remap;
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartTask_DISPLAY */
@@ -1021,6 +1039,9 @@ void StartTask_DISPLAY(void *argument)
 	diagnosticMsg_t msg_rec_DIAG = {0};
 	uint16_t resultado = 0;
 	char buffer[20];
+	uint8_t buffer_graph[SSD1306_WIDTH] = {0};
+
+
   /* Infinite loop */
   for(;;)
   {
@@ -1043,6 +1064,8 @@ void StartTask_DISPLAY(void *argument)
 					case PAG_RUN:
 
 						switch(param_a_medir_global){
+
+//						SSD1306_DrawLine(0, 32, 128, 32, 1);
 
 						case RESISTENCIA:
 							SSD1306_Puts("RUN_R", &Font_11x18, 1);
@@ -1146,11 +1169,24 @@ void StartTask_DISPLAY(void *argument)
 			case STATE_RUN:
 //				osMessageQueueGet(process2displayHandle, &resultado, 0, 0);
 
-				SSD1306_GotoXY(20, 20);
+				SSD1306_GotoXY(50, 5);
 				SSD1306_Clear();
 				snprintf(buffer,sizeof(buffer),"%u",resultado);
 				SSD1306_Puts(buffer, &Font_7x10, 1);
-				SSD1306_UpdateScreen();
+				SSD1306_DrawLine(0, DIV_4(SSD1306_HEIGHT), SSD1306_WIDTH, DIV_4(SSD1306_HEIGHT), SSD1306_COLOR_WHITE); // (x0,y0,x1,y1,color)
+
+				// grafica
+
+				for (int i = 0; i < (SSD1306_WIDTH - 1); i++) {
+					buffer_graph[i] = buffer_graph[i + 1]; // El valor de la derecha se mueve a la izquierda
+				}
+				buffer_graph[SSD1306_WIDTH - 1] = SSD1306_remap(resultado);
+
+				for (int i = 0; i < (SSD1306_WIDTH - 1); i++) {
+					SSD1306_DrawPixel(i, buffer_graph[i], SSD1306_COLOR_WHITE);
+				}
+
+//				SSD1306_UpdateScreen();
 				break;
 
 			default: break;
