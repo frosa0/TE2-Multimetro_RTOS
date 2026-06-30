@@ -165,6 +165,7 @@ typedef enum{
 #define ADC_TMAX_CAP (uint16_t)10000
 
 //PARA ALARMA HEAP, STACK y FU
+#define PORCENTAJE_STACK 5
 //#define STACK_MAX (uint16_t)10 // Task_PROCESSING_attributes.stack_size/10
 
 #define DEBOUNCE_DELAY 600
@@ -1046,7 +1047,7 @@ uint8_t SSD1306_remap(uint16_t value){
 }
 
 uint8_t devolverERROR(diagnosticMsg_t diag){
-	if((task_DISPLAY_attributes.stack_size - diag.stack_DISPLAY) < (task_DISPLAY_attributes.stack_size/10)){
+	if((task_DISPLAY_attributes.stack_size - diag.stack_DISPLAY) < ((PORCENTAJE_STACK*task_DISPLAY_attributes.stack_size))){
 		return alerta_StackDISPLAY;
 	}
 	if((Task_GUI_attributes.stack_size - diag.stack_PROCESSING) < (Task_GUI_attributes.stack_size/10)){
@@ -1084,9 +1085,10 @@ void StartTask_DISPLAY(void *argument)
 	SSD1306_Init();
 	screenMsg_t msg_rec_GUI;
 	diagnosticMsg_t msg_rec_DIAG = {0};
-	alertaMsg_t msg_alerta = {0};
+	alertaMsg_t msg_alerta;
+	msg_alerta.error = 0;
 	uint16_t resultado = 0;
-	char buffer[20];
+	char buffer[20] = {0};
 	uint8_t buffer_graph[SSD1306_WIDTH];
 	memset(buffer_graph, 60, SSD1306_WIDTH);
 
@@ -1096,25 +1098,29 @@ void StartTask_DISPLAY(void *argument)
   {
 	  if (osMessageQueueGet(alertaHandle, &msg_alerta, 0, 0) == osOK){
 		  SSD1306_GotoXY(20, 20);
-		  SSD1306_Clear();
-
 		  switch(msg_alerta.error){
 		  case alerta_StackDISPLAY:
+			  SSD1306_Clear();
 			  SSD1306_Puts("alerta_StackDISPLAY", &Font_11x18, 1);
 			  break;
 		  case alerta_StackGUI:
+			  SSD1306_Clear();
 			  SSD1306_Puts("alerta_StackGUI", &Font_11x18, 1);
 			  break;
 		  case alerta_StackDIAGNOSTIC:
+			  SSD1306_Clear();
 			  SSD1306_Puts("alerta_StackDIAGNOSTIC", &Font_11x18, 1);
 			  break;
 		  case alerta_StackPROCESSING:
+			  SSD1306_Clear();
 			  SSD1306_Puts("alerta_StackPROCESSING", &Font_11x18, 1);
 			  break;
 		  case alerta_HEAP:
+			  SSD1306_Clear();
 			  SSD1306_Puts("alerta_HEAP", &Font_11x18, 1);
 			  break;
 		  case alerta_FU:
+			  SSD1306_Clear();
 			  SSD1306_Puts("alerta_FU", &Font_11x18, 1);
 			  break;
 		  }
@@ -1123,24 +1129,24 @@ void StartTask_DISPLAY(void *argument)
 	      (osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK)){
 
 		  SSD1306_GotoXY(20, 20);
-		  SSD1306_Clear();
 
-//		  if(msg_alerta.alerta_StackDIAGNOSTIC != 0 ||
-//			 msg_alerta.alerta_StackDISPLAY != 0 ||
-//			 msg_alerta.alerta_StackGUI != 0 ||
-//			 msg_alerta.alerta_StackPROCESSING != 0){
-//				SSD1306_Puts("alerta_Stack", &Font_11x18, 1);
-//		  }
+		  SSD1306_DrawFilledRectangle(20, 20, 88, 18, 0);
+
+//		  SSD1306_Clear();
+//			SSD1306_Puts("Param.", &Font_11x18, 0);
 
 		  switch (msg_rec_GUI.estado) {
 			case STATE_MENU:
 				//SSD1306_Puts("MENU", &Font_11x18, 1);
 				switch (msg_rec_GUI.pagina) {
 					case PAG_CONFIG:
-						SSD1306_Puts("Param.", &Font_11x18, 1);
+						SSD1306_Clear();
+						SSD1306_Puts("Param.", &Font_11x18, 0);
+
 						break;
 					case PAG_DIAG:
-						SSD1306_Puts("Diagnos.", &Font_11x18, 1);
+						SSD1306_Clear();
+						SSD1306_Puts("Diagnos.", &Font_11x18, 0);
 						break;
 					case PAG_RUN:
 
@@ -1149,13 +1155,17 @@ void StartTask_DISPLAY(void *argument)
 //						SSD1306_DrawLine(0, 32, 128, 32, 1);
 
 						case RESISTENCIA:
-							SSD1306_Puts("RUN_R", &Font_11x18, 1);
+							SSD1306_Clear();
+							SSD1306_Puts("RUN_R", &Font_11x18, 0);
+//							SSD1306_Clear();
 							break;
 						case CAPACITOR:
-							SSD1306_Puts("RUN_C", &Font_11x18, 1);
+							SSD1306_Clear();
+							SSD1306_Puts("RUN_C", &Font_11x18, 0);
 							break;
 						default:
-							SSD1306_Puts("RUN", &Font_11x18, 1);
+							SSD1306_Clear();
+							SSD1306_Puts("RUN", &Font_11x18, 0);
 							break;
 						}
 						break;
@@ -1166,10 +1176,12 @@ void StartTask_DISPLAY(void *argument)
 //				SSD1306_Puts("SUBMENU", &Font_11x18, 1);
 				switch (msg_rec_GUI.pagina) {
 					case PAG_RES:
-						SSD1306_Puts("R", &Font_16x26, 1);
+						SSD1306_Clear();
+						SSD1306_Puts("R", &Font_11x18, 0);
 						break;
 					case PAG_CAP:
-						SSD1306_Puts("C", &Font_16x26, 1);
+						SSD1306_Clear();
+						SSD1306_Puts("C", &Font_11x18, 0);
 						break;
 				}
 				break;
@@ -1250,12 +1262,15 @@ void StartTask_DISPLAY(void *argument)
 			case STATE_RUN:
 //				osMessageQueueGet(process2displayHandle, &resultado, 0, 0);
 
-				SSD1306_GotoXY(50, 5);
 
 //				SSD1306_Clear();
-				SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_BLACK);
-				snprintf(buffer,sizeof(buffer),"%u",resultado);
+				SSD1306_DrawFilledRectangle(50, 5, 78, 60, 0);
 
+				SSD1306_GotoXY(50, 5);
+
+//				SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_BLACK);
+
+				snprintf(buffer,sizeof(buffer),"%u",resultado);
 				SSD1306_GotoXY(50, 5);
 				SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
 
@@ -1267,6 +1282,9 @@ void StartTask_DISPLAY(void *argument)
 
 				// grafica
 
+				for (int i = 0; i < (SSD1306_WIDTH - 1); i++) {
+					SSD1306_DrawPixel(i, buffer_graph[i], SSD1306_COLOR_BLACK);
+				}
 				for (int i = 0; i < (SSD1306_WIDTH - 1); i++) {
 					buffer_graph[i] = buffer_graph[i + 1]; // El valor de la derecha se mueve a la izquierda
 				}
