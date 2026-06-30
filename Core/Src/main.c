@@ -1039,7 +1039,8 @@ void StartTask_DISPLAY(void *argument)
 	diagnosticMsg_t msg_rec_DIAG = {0};
 	uint16_t resultado = 0;
 	char buffer[20];
-	uint8_t buffer_graph[SSD1306_WIDTH] = {0};
+	uint8_t buffer_graph[SSD1306_WIDTH];
+	memset(buffer_graph, 60, SSD1306_WIDTH);
 
 
   /* Infinite loop */
@@ -1170,10 +1171,19 @@ void StartTask_DISPLAY(void *argument)
 //				osMessageQueueGet(process2displayHandle, &resultado, 0, 0);
 
 				SSD1306_GotoXY(50, 5);
-				SSD1306_Clear();
+
+//				SSD1306_Clear();
+				SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_BLACK);
 				snprintf(buffer,sizeof(buffer),"%u",resultado);
-				SSD1306_Puts(buffer, &Font_7x10, 1);
+
+				SSD1306_GotoXY(50, 5);
+				SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+
+				// ============= TODO ==============
+				//Esto podria hacerse una vez y listo
 				SSD1306_DrawLine(0, DIV_4(SSD1306_HEIGHT), SSD1306_WIDTH, DIV_4(SSD1306_HEIGHT), SSD1306_COLOR_WHITE); // (x0,y0,x1,y1,color)
+				// =================================
+
 
 				// grafica
 
