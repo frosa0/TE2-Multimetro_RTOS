@@ -165,7 +165,8 @@ typedef enum{
 #define ADC_TMAX_CAP (uint16_t)10000
 
 //PARA ALARMA HEAP, STACK y FU
-#define PORCENTAJE_STACK 5
+#define STACK_UMBRAL 5// porcentaje del stack minimo que consideramos limite umbral para msj de error
+#define HEAP_UMBRAL	100//
 //#define STACK_MAX (uint16_t)10 // Task_PROCESSING_attributes.stack_size/10
 
 #define DEBOUNCE_DELAY 600
@@ -1047,19 +1048,19 @@ uint8_t SSD1306_remap(uint16_t value){
 }
 
 uint8_t devolverERROR(diagnosticMsg_t diag){
-	if((task_DISPLAY_attributes.stack_size - diag.stack_DISPLAY) < ((PORCENTAJE_STACK*task_DISPLAY_attributes.stack_size))){
+	if((task_DISPLAY_attributes.stack_size - diag.stack_DISPLAY) < ( (task_DISPLAY_attributes.stack_size*STACK_UMBRAL)/100)){
 		return alerta_StackDISPLAY;
 	}
-	if((Task_GUI_attributes.stack_size - diag.stack_PROCESSING) < (Task_GUI_attributes.stack_size/10)){
+	if((Task_GUI_attributes.stack_size - diag.stack_PROCESSING) < ( (Task_GUI_attributes.stack_size*STACK_UMBRAL)/100 )){
 		return alerta_StackGUI;
 	}
-	if((Task_DIAGNOSTIC_attributes.stack_size - diag.stack_PROCESSING) < (Task_DIAGNOSTIC_attributes.stack_size/10)){
+	if((Task_DIAGNOSTIC_attributes.stack_size - diag.stack_PROCESSING) < ( (Task_DIAGNOSTIC_attributes.stack_size*STACK_UMBRAL)/100)){
 		return alerta_StackDIAGNOSTIC;
 	}
-	if((Task_PROCESSING_attributes.stack_size - diag.stack_PROCESSING) < (Task_PROCESSING_attributes.stack_size/10)){
+	if((Task_PROCESSING_attributes.stack_size - diag.stack_PROCESSING) < ( (Task_PROCESSING_attributes.stack_size*STACK_UMBRAL)/100)){
 		return alerta_StackPROCESSING;
 	}
-	if(diag.libre_HEAP <= 100){
+	if(diag.libre_HEAP <= HEAP_UMBRAL){
 		return alerta_HEAP;
 	}
 	if(diag.FU >= 69){

@@ -1,8 +1,9 @@
 0. Caso ALERTA dentro de DIAGNOSTIC
 usar un define UMBRAL para stack tareas, para heap y para FU.
 STACK nulo 
-HEAP nulo 
-FU con la cuenta eso del 69% (valor teorico) y valor calculado (limite practico) 
+HEAP nulo *AGREGAR* Peor caso historico.
+FU con la cuenta eso del 69% (valor teorico) y valor calculado (limite practico) *Agregar* Peor caso historico
+
 
 1. Esquema de tareas
 iba a haber 4 tareas, cada una destinada a un proposito concreto, conectadas con queues. Basados en lo recomendados por la consigna de la catedra
