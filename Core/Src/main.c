@@ -49,7 +49,6 @@ typedef enum {
     STATE_SUBMENU,
     STATE_RUN,
     STATE_DIAGNOSTIC,
-    STATE_ERROR
 } FSMState;
 
 typedef enum{
@@ -63,21 +62,19 @@ typedef enum{
 } codigoERROR;
 
 typedef struct {
-	uint32_t WaterMark_DISPLAY;
-	uint32_t WaterMark_GUI;
-	uint32_t WaterMark_DIAGNOSTIC;
-	uint32_t WaterMark_PROCESSING;
-	uint32_t stack_DISPLAY;
-	uint32_t stack_GUI;
-	uint32_t stack_DIAGNOSTIC;
-	uint32_t stack_PROCESSING;
-	uint32_t libre_HEAP;
-	uint32_t FU;
+	uint16_t WaterMark_DISPLAY;
+	uint16_t WaterMark_GUI;
+	uint16_t WaterMark_DIAGNOSTIC;
+	uint16_t WaterMark_PROCESSING;
+	uint16_t stack_DISPLAY;
+	uint16_t stack_GUI;
+	uint16_t stack_DIAGNOSTIC;
+	uint16_t stack_PROCESSING;
+	uint16_t libre_HEAP;
+	uint16_t FU;
+	uint16_t max_HEAP;
+	uint16_t max_FU;
 } diagnosticMsg_t;
-
-typedef struct{
-	uint8_t error;
-} alertaMsg_t;
 
 typedef enum {
     EVENT_NINGUNO,
@@ -358,7 +355,7 @@ int main(void)
   process2displayHandle = osMessageQueueNew (2, sizeof(uint16_t), &process2display_attributes);
 
   /* creation of alerta */
-  alertaHandle = osMessageQueueNew (2, sizeof(alertaMsg_t), &alerta_attributes);
+  alertaHandle = osMessageQueueNew (2, sizeof(uint8_t), &alerta_attributes);
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
@@ -764,7 +761,6 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
 
                 	next = STATE_RUN; }
             }
-            if (event == EVENT_ERROR) next = STATE_ERROR;
             break;
 
         case STATE_SUBMENU:
@@ -786,7 +782,6 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
 				next = STATE_MENU;
 				page = PAG_CONFIG; //SE RESETEA LA PAGINA PORQUE SE SALE DEL SUBMENÚ AL MENÚ.
             }
-            if (event == EVENT_ERROR) next = STATE_ERROR;
             break;
 
         case STATE_RUN:
@@ -794,26 +789,17 @@ FSMState fsm_process_event(FSMState current, FSMEvent event) {
             	param_a_medir_global = NONE;
             	next = STATE_MENU;
             }
-            if (event == EVENT_ERROR) next = STATE_ERROR;
             break;
 
         case STATE_DIAGNOSTIC:
             if (event == EVENT_H) page = PAG_T1 + (page - (PAG_T1 - 1)) % 6;
             if (event == EVENT_AH) page = PAG_FACU - ((PAG_FACU + 1) - page) % 6;
-            if (event == EVENT_ERROR) next = STATE_ERROR;
             if (event == EVENT_PUSH){
             		next = STATE_MENU;
             		page = PAG_CONFIG;
             }
             break;
 
-        case STATE_ERROR:
-            if (event == EVENT_PUSH) {
-                // Al presionar el encoder en pantalla de error, reiniciamos a IDLE
-                page = 0;
-                next = STATE_IDLE;
-            }
-            break;
         default: break;
     }
 //    RECORDAR USAR VARIABLE LOCAL PARA EVITAR LEER Y ESCRIBIR AL MISMO TIEMPO VARIABLE GLOBAL
@@ -1063,10 +1049,10 @@ uint8_t devolverERROR(diagnosticMsg_t diag){
 	if(diag.libre_HEAP <= HEAP_UMBRAL){
 		return alerta_HEAP;
 	}
-	if(diag.FU >= 69){
+	if(diag.FU >= 100){
 		return alerta_FU;
 	}
-	return 0;
+	return alerta_NONE;
 }
 
 /* USER CODE END 4 */
@@ -1086,8 +1072,7 @@ void StartTask_DISPLAY(void *argument)
 	SSD1306_Init();
 	screenMsg_t msg_rec_GUI;
 	diagnosticMsg_t msg_rec_DIAG = {0};
-	alertaMsg_t msg_alerta;
-	msg_alerta.error = 0;
+	uint8_t msg_alerta = 0;
 	uint16_t resultado = 0;
 	char buffer[20] = {0};
 	uint8_t buffer_graph[SSD1306_WIDTH];
@@ -1099,35 +1084,41 @@ void StartTask_DISPLAY(void *argument)
   {
 	  if (osMessageQueueGet(alertaHandle, &msg_alerta, 0, 0) == osOK){
 		  SSD1306_GotoXY(20, 20);
-		  switch(msg_alerta.error){
-		  case alerta_StackDISPLAY:
-			  SSD1306_Clear();
-			  SSD1306_Puts("alerta_StackDISPLAY", &Font_11x18, 1);
-			  break;
-		  case alerta_StackGUI:
-			  SSD1306_Clear();
-			  SSD1306_Puts("alerta_StackGUI", &Font_11x18, 1);
-			  break;
-		  case alerta_StackDIAGNOSTIC:
-			  SSD1306_Clear();
-			  SSD1306_Puts("alerta_StackDIAGNOSTIC", &Font_11x18, 1);
-			  break;
-		  case alerta_StackPROCESSING:
-			  SSD1306_Clear();
-			  SSD1306_Puts("alerta_StackPROCESSING", &Font_11x18, 1);
-			  break;
-		  case alerta_HEAP:
-			  SSD1306_Clear();
-			  SSD1306_Puts("alerta_HEAP", &Font_11x18, 1);
-			  break;
-		  case alerta_FU:
-			  SSD1306_Clear();
-			  SSD1306_Puts("alerta_FU", &Font_11x18, 1);
-			  break;
+		  switch(msg_alerta){
+			  case alerta_StackDISPLAY:
+				  SSD1306_Clear();
+				  SSD1306_Puts("alerta_StackDISPLAY", &Font_7x10, 1);
+				  break;
+			  case alerta_StackGUI:
+				  SSD1306_Clear();
+				  SSD1306_Puts("alerta_StackGUI", &Font_7x10, 1);
+				  break;
+			  case alerta_StackDIAGNOSTIC:
+				  SSD1306_Clear();
+				  SSD1306_Puts("alerta_StackDIAGNOSTIC", &Font_7x10, 1);
+				  break;
+			  case alerta_StackPROCESSING:
+				  SSD1306_Clear();
+				  SSD1306_Puts("alerta_StackPROCESSING", &Font_7x10, 1);
+				  break;
+			  case alerta_HEAP:
+				  SSD1306_Clear();
+				  SSD1306_Puts("alerta_HEAP", &Font_7x10, 1);
+				  break;
+			  case alerta_FU:
+				  SSD1306_Clear();
+				  SSD1306_Puts("alerta_FU", &Font_7x10, 1);
+				  break;
+			  default: break;
 		  }
 	  }
-	  else if ((osMessageQueueGet(myQueue01Handle, &msg_rec_GUI, 0, 0) == osOK) ||
-	      (osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK)){
+	  else if	((osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK)		||
+
+			  (osMessageQueueGet(myQueue01Handle, &msg_rec_GUI, 0, 0) == osOK)			||
+
+			((osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0) == osOK)	&&	(msg_rec_GUI.estado == STATE_DIAGNOSTIC))
+	  	  	  	  )
+	  {
 
 		  SSD1306_GotoXY(20, 20);
 
@@ -1187,73 +1178,93 @@ void StartTask_DISPLAY(void *argument)
 				}
 				break;
 			case STATE_DIAGNOSTIC:
-				osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0);
+//				osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0);
 
 				switch (msg_rec_GUI.pagina) {
 				case PAG_T1:
 					// GUI
+					SSD1306_Clear();
+
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("GUI", &Font_7x10, 1);
 					SSD1306_GotoXY(20, 30);
-					snprintf(buffer,sizeof(buffer),"WM: %lu",msg_rec_DIAG.WaterMark_GUI);
+					snprintf(buffer,sizeof(buffer),"WM: %u",msg_rec_DIAG.WaterMark_GUI);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
-					snprintf(buffer,sizeof(buffer),"STACK: %lu",msg_rec_DIAG.stack_GUI);
+					snprintf(buffer,sizeof(buffer),"STACK: %u",msg_rec_DIAG.stack_GUI);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_T2:
 					// DISPLAY
 //					SSD1306_Puts("T2", &Font_11x18, 1);
+					SSD1306_Clear();
+
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("DISPLAY", &Font_7x10, 1);
 					SSD1306_GotoXY(20, 30);
-					snprintf(buffer, sizeof(buffer), "WM: %lu",
+					snprintf(buffer, sizeof(buffer), "WM: %u",
 							msg_rec_DIAG.WaterMark_DISPLAY);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
-					snprintf(buffer,sizeof(buffer),"STACK: %lu",msg_rec_DIAG.stack_DISPLAY);
+					snprintf(buffer,sizeof(buffer),"STACK: %u",msg_rec_DIAG.stack_DISPLAY);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 
 					break;
 				case PAG_T3:
 					//DIAGNOSTICO
 //					SSD1306_Puts("T3", &Font_11x18, 1);
+					SSD1306_Clear();
+
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("DIAGNOSTIC", &Font_7x10, 1);
 					SSD1306_GotoXY(20, 30);
-					snprintf(buffer, sizeof(buffer), "WM: %lu",
+					snprintf(buffer, sizeof(buffer), "WM: %u",
 							msg_rec_DIAG.WaterMark_DIAGNOSTIC);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
-					snprintf(buffer,sizeof(buffer),"STACK: %lu",msg_rec_DIAG.stack_DIAGNOSTIC);
+					snprintf(buffer,sizeof(buffer),"STACK: %u",msg_rec_DIAG.stack_DIAGNOSTIC);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 
 					break;
 				case PAG_T4:
 					//PROCESSING
 //					SSD1306_Puts("T4", &Font_11x18, 1);
+					SSD1306_Clear();
+
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("PROCESSING", &Font_7x10, 1);
 					SSD1306_GotoXY(20, 30);
-					snprintf(buffer, sizeof(buffer), "WM: %lu",
+					snprintf(buffer, sizeof(buffer), "WM: %u",
 							msg_rec_DIAG.WaterMark_PROCESSING);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
-					snprintf(buffer,sizeof(buffer),"STACK: %lu",msg_rec_DIAG.stack_PROCESSING);
+					snprintf(buffer,sizeof(buffer),"STACK: %u",msg_rec_DIAG.stack_PROCESSING);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_HEAP:
+					SSD1306_Clear();
+
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("Heap", &Font_7x10, 1);
+					SSD1306_GotoXY(20, 30);
+					snprintf(buffer, sizeof(buffer), "max: %u",
+							msg_rec_DIAG.max_HEAP);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
-					snprintf(buffer, sizeof(buffer), "%lu",msg_rec_DIAG.libre_HEAP);
+					snprintf(buffer, sizeof(buffer), "%u",msg_rec_DIAG.libre_HEAP);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 				case PAG_FACU:
+					SSD1306_Clear();
+
 					SSD1306_GotoXY(20, 10);
 					SSD1306_Puts("FACU", &Font_7x10, 1);
+					SSD1306_GotoXY(20, 30);
+					snprintf(buffer, sizeof(buffer), "max: %u",
+							msg_rec_DIAG.max_FU);
+					SSD1306_Puts(buffer, &Font_7x10, 1);
 					SSD1306_GotoXY(20, 40);
-					snprintf(buffer, sizeof(buffer), "%lu",msg_rec_DIAG.FU);
+					snprintf(buffer, sizeof(buffer), "%u",msg_rec_DIAG.FU);
 					SSD1306_Puts(buffer, &Font_7x10, 1);
 					break;
 
@@ -1300,8 +1311,9 @@ void StartTask_DISPLAY(void *argument)
 
 			default: break;
 		}
-		  SSD1306_UpdateScreen();
+//		  SSD1306_UpdateScreen();
 	  }
+	  SSD1306_UpdateScreen();
 
     osDelay(50); //20 fps -> 1/20 = 50ms
   }
@@ -1321,7 +1333,7 @@ void StartTask_GUI(void *argument)
 	vTaskSetApplicationTaskTag(NULL, (void *) TAG_TASK_GUI);
 
 	FSMState estado_actual = STATE_IDLE;
-	FSMState estado_anterior = STATE_ERROR; // Forzamos disparar el primer envío
+	FSMState estado_anterior;	// = STATE_ERROR; // Forzamos disparar el primer envío
 	FSMEvent evento = EVENT_NINGUNO;
 	screenMsg_t msg_pantalla;
 
@@ -1386,7 +1398,7 @@ void StartTask_DIAGNOSTIC(void *argument)
 	vTaskSetApplicationTaskTag(NULL, (void *) TAG_TASK_DIAGNOSTIC);
 
 	diagnosticMsg_t diagnostic = {0};
-	alertaMsg_t alerta = {0};
+	uint8_t alerta = 0;
 //	vTaskGetInfo(xTask, pxTaskStatus, xGetFreeStackSpace, eState)
 	TaskStatus_t xTaskDetails;
 	StackType_t *pxTopOfStack;
@@ -1394,9 +1406,11 @@ void StartTask_DIAGNOSTIC(void *argument)
 
 	// FU
 	uint32_t copia_ticks_idle = 0;
-	uint32_t factor_utilidad = 0;
-	uint32_t factor_promedio = 0;
-	uint32_t fu_entero = 0;
+	float factor_utilidad = 0;
+	uint16_t FU_acumulado = 0;
+	uint8_t i = 0;
+//	uint32_t factor_promedio = 0;
+//	uint32_t fu_entero = 0;
   /* Infinite loop */
   for(;;)
   {
@@ -1447,19 +1461,39 @@ void StartTask_DIAGNOSTIC(void *argument)
 		// 2. Cálculo de utilización
 		// Antes multiplicabas por 10 (base 100). Ahora, para llegar a base 1000:
 		// (copia_ticks_idle / 50) * 1000  =>  equivale a  (copia_ticks_idle * 20)
-		factor_utilidad = 1000 - (copia_ticks_idle * 20);
+//		factor_utilidad = 1000 - (copia_ticks_idle * 20);
 
 		// El resto del filtro EMA sigue igual:
-		factor_promedio = ((factor_utilidad * 1) + (factor_promedio * 9)) / 10;
-		fu_entero = factor_promedio / 10;
+//		factor_promedio = ((factor_utilidad * 1) + (factor_promedio * 9)) / 10;
+//		factor_promedio = factor_promedio +(factor_utilidad - factor_promedio);
+//		fu_entero = factor_promedio / 10;
+//		diagnostic.FU = fu_entero;
 
-		diagnostic.FU = fu_entero;
+		factor_utilidad = (float)50 - (float)copia_ticks_idle;
+		factor_utilidad = (factor_utilidad/(float)50)*100;
+
+		FU_acumulado += (uint16_t)factor_utilidad;
+		i++;
+		if(i == 30){
+			FU_acumulado = FU_acumulado/i;
+			diagnostic.FU = FU_acumulado;
+
+			FU_acumulado = 0;
+			i=0;
+		}
+//		diagnostic.FU = (uint16_t)factor_utilidad;
 
 
 
-//		alerta.error = devolverERROR(diagnostic);
+		if((alerta = devolverERROR(diagnostic)) != alerta_NONE){
+			osMessageQueuePut(alertaHandle, &alerta, 0, 0);
 
-		if((alerta.error = devolverERROR(diagnostic)) != alerta_NONE)	osMessageQueuePut(alertaHandle, &alerta, 0, 0);
+		}
+
+		if(diagnostic.max_FU < diagnostic.FU){
+				diagnostic.max_FU = diagnostic.FU;}
+		if(diagnostic.max_HEAP < diagnostic.libre_HEAP){
+				diagnostic.max_HEAP = diagnostic.libre_HEAP;}
 
 		osMessageQueuePut(diag2displayHandle, &diagnostic, 0, 0);
 		osDelay(DIAG_PERIODO_MS);
