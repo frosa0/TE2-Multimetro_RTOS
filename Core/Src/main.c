@@ -26,6 +26,7 @@
 #include "fonts.h"
 #include <string.h>
 #include "stdio.h"
+#include "bitmap.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -1071,6 +1072,7 @@ void StartTask_DISPLAY(void *argument)
 
 	SSD1306_Init();
 	screenMsg_t msg_rec_GUI;
+	msg_rec_GUI.estado = STATE_IDLE;
 	diagnosticMsg_t msg_rec_DIAG = {0};
 	uint8_t msg_alerta = 0;
 	uint16_t resultado = 0;
@@ -1078,6 +1080,23 @@ void StartTask_DISPLAY(void *argument)
 	uint8_t buffer_graph[SSD1306_WIDTH];
 	memset(buffer_graph, 60, SSD1306_WIDTH);
 
+	// Variables de control de estado anterior para evitar parpadeos y bloqueos dinámicos
+	uint8_t last_pagina_DIAG = 0xFF;
+
+	uint16_t last_WM_GUI = 0xFFFF;
+	uint16_t last_stack_GUI = 0xFFFF;
+
+	uint16_t last_WM_DISPLAY = 0xFFFF;
+	uint16_t last_stack_DISPLAY = 0xFFFF;
+
+	uint16_t last_WM_DIAGNOSTIC = 0xFFFF;
+	uint16_t last_stack_DIAGNOSTIC = 0xFFFF;
+
+	uint16_t last_WM_PROCESSING = 0xFFFF;
+	uint16_t last_stack_PROCESSING = 0xFFFF;
+
+	uint32_t last_libre_HEAP = 0xFFFFFFFF;
+	uint32_t last_libre_FU = 0xFFFFFFFF;
 
   /* Infinite loop */
   for(;;)
@@ -1112,52 +1131,36 @@ void StartTask_DISPLAY(void *argument)
 			  default: break;
 		  }
 	  }
-	  else if	((osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK)		||
-
-			  (osMessageQueueGet(myQueue01Handle, &msg_rec_GUI, 0, 0) == osOK)			||
-
-			((osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0) == osOK)	&&	(msg_rec_GUI.estado == STATE_DIAGNOSTIC))
-	  	  	  	  )
-	  {
-
-		  SSD1306_GotoXY(20, 20);
-
-		  SSD1306_DrawFilledRectangle(20, 20, 88, 18, 0);
-
-//		  SSD1306_Clear();
-//			SSD1306_Puts("Param.", &Font_11x18, 0);
+	  else if ((osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK) ||
+		(osMessageQueueGet(myQueue01Handle, &msg_rec_GUI, 0, 0) == osOK) ||
+		((osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0) == osOK) && (msg_rec_GUI.estado == STATE_DIAGNOSTIC)) ||
+		 (msg_rec_GUI.estado == STATE_IDLE)
+		) {
 
 		  switch (msg_rec_GUI.estado) {
 			case STATE_MENU:
-				//SSD1306_Puts("MENU", &Font_11x18, 1);
 				switch (msg_rec_GUI.pagina) {
 					case PAG_CONFIG:
 						SSD1306_Clear();
-						SSD1306_Puts("Param.", &Font_11x18, 0);
-
+						SSD1306_DrawBitmap(0, 0, menu_param, 128, 64, SSD1306_COLOR_WHITE);
 						break;
 					case PAG_DIAG:
 						SSD1306_Clear();
-						SSD1306_Puts("Diagnos.", &Font_11x18, 0);
+						SSD1306_DrawBitmap(0, 0, menu_DIAG, 128, 64, SSD1306_COLOR_WHITE);
 						break;
 					case PAG_RUN:
-
 						switch(param_a_medir_global){
-
-//						SSD1306_DrawLine(0, 32, 128, 32, 1);
-
 						case RESISTENCIA:
 							SSD1306_Clear();
-							SSD1306_Puts("RUN_R", &Font_11x18, 0);
-//							SSD1306_Clear();
+							SSD1306_DrawBitmap(0, 0, menu_RUN_R, 128, 64, SSD1306_COLOR_WHITE);
 							break;
 						case CAPACITOR:
 							SSD1306_Clear();
-							SSD1306_Puts("RUN_C", &Font_11x18, 0);
+							SSD1306_DrawBitmap(0, 0, menu_RUN_C, 128, 64, SSD1306_COLOR_WHITE);
 							break;
 						default:
 							SSD1306_Clear();
-							SSD1306_Puts("RUN", &Font_11x18, 0);
+							SSD1306_DrawBitmap(0, 0, menu_RUN, 128, 64, SSD1306_COLOR_WHITE);
 							break;
 						}
 						break;
@@ -1165,157 +1168,350 @@ void StartTask_DISPLAY(void *argument)
 				break;
 
 			case STATE_SUBMENU:
-//				SSD1306_Puts("SUBMENU", &Font_11x18, 1);
 				switch (msg_rec_GUI.pagina) {
 					case PAG_RES:
 						SSD1306_Clear();
-						SSD1306_Puts("R", &Font_11x18, 0);
+						SSD1306_DrawBitmap(0, 0, SUBMENU_R, 128, 64, SSD1306_COLOR_WHITE);
 						break;
 					case PAG_CAP:
 						SSD1306_Clear();
-						SSD1306_Puts("C", &Font_11x18, 0);
+						SSD1306_DrawBitmap(0, 0, SUBMENU_C, 128, 64, SSD1306_COLOR_WHITE);
 						break;
 				}
 				break;
+
 			case STATE_DIAGNOSTIC:
-//				osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0);
+				// ==========================================
+				// GESTIÓN DE LIMPIEZA POR CAMBIO DE PÁGINA
+				// ==========================================
+				if (msg_rec_GUI.pagina != last_pagina_DIAG) {
+					SSD1306_Clear();
+					last_pagina_DIAG = msg_rec_GUI.pagina;
+
+					// Forzamos el redibujado de las estructuras estáticas fijas en todas las solapas
+					last_WM_GUI = 0xFFFF;
+					last_WM_DISPLAY = 0xFFFF;
+					last_WM_DIAGNOSTIC = 0xFFFF;
+					last_WM_PROCESSING = 0xFFFF;
+					last_libre_HEAP = 0xFFFFFFFF;
+					last_libre_FU = 0xFFFFFFFF;
+				}
 
 				switch (msg_rec_GUI.pagina) {
-				case PAG_T1:
-					// GUI
-					SSD1306_Clear();
 
-					SSD1306_GotoXY(20, 10);
-					SSD1306_Puts("GUI", &Font_7x10, 1);
-					SSD1306_GotoXY(20, 30);
-					snprintf(buffer,sizeof(buffer),"WM: %u",msg_rec_DIAG.WaterMark_GUI);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
-					SSD1306_GotoXY(20, 40);
-					snprintf(buffer,sizeof(buffer),"STACK: %u",msg_rec_DIAG.stack_GUI);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
-					break;
-				case PAG_T2:
-					// DISPLAY
-//					SSD1306_Puts("T2", &Font_11x18, 1);
-					SSD1306_Clear();
+				case PAG_T1: // Tarea GUI
+				    if (last_WM_GUI == 0xFFFF) {
+				        SSD1306_DrawFilledRectangle(0, 0, 128, 12, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(4, 1);
+				        SSD1306_Puts("DIAG: TASK GUI", &Font_7x10, SSD1306_COLOR_BLACK);
 
-					SSD1306_GotoXY(20, 10);
-					SSD1306_Puts("DISPLAY", &Font_7x10, 1);
-					SSD1306_GotoXY(20, 30);
-					snprintf(buffer, sizeof(buffer), "WM: %u",
-							msg_rec_DIAG.WaterMark_DISPLAY);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
-					SSD1306_GotoXY(20, 40);
-					snprintf(buffer,sizeof(buffer),"STACK: %u",msg_rec_DIAG.stack_DISPLAY);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
+				        SSD1306_GotoXY(10, 16);
+				        SSD1306_Puts("Stack:", &Font_7x10, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(10, 28);
+				        SSD1306_Puts("WM:", &Font_7x10, SSD1306_COLOR_WHITE);
 
-					break;
-				case PAG_T3:
-					//DIAGNOSTICO
-//					SSD1306_Puts("T3", &Font_11x18, 1);
-					SSD1306_Clear();
+				        SSD1306_DrawRectangle(10, 42, 80, 8, SSD1306_COLOR_WHITE);
+				        last_stack_GUI = 0xFFFF;
+				    }
 
-					SSD1306_GotoXY(20, 10);
-					SSD1306_Puts("DIAGNOSTIC", &Font_7x10, 1);
-					SSD1306_GotoXY(20, 30);
-					snprintf(buffer, sizeof(buffer), "WM: %u",
-							msg_rec_DIAG.WaterMark_DIAGNOSTIC);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
-					SSD1306_GotoXY(20, 40);
-					snprintf(buffer,sizeof(buffer),"STACK: %u",msg_rec_DIAG.stack_DIAGNOSTIC);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
+				    if (msg_rec_DIAG.stack_GUI != last_stack_GUI) {
+				        last_stack_GUI = msg_rec_DIAG.stack_GUI;
+				        SSD1306_DrawFilledRectangle(60, 16, 45, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(60, 16);
+				        snprintf(buffer, sizeof(buffer), "%u B", msg_rec_DIAG.stack_GUI);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+				    }
 
-					break;
-				case PAG_T4:
-					//PROCESSING
-//					SSD1306_Puts("T4", &Font_11x18, 1);
-					SSD1306_Clear();
+				    if (msg_rec_DIAG.WaterMark_GUI != last_WM_GUI) {
+				        last_WM_GUI = msg_rec_DIAG.WaterMark_GUI;
+				        SSD1306_DrawFilledRectangle(60, 28, 45, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(60, 28);
+				        snprintf(buffer, sizeof(buffer), "%u B", msg_rec_DIAG.WaterMark_GUI);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
 
-					SSD1306_GotoXY(20, 10);
-					SSD1306_Puts("PROCESSING", &Font_7x10, 1);
-					SSD1306_GotoXY(20, 30);
-					snprintf(buffer, sizeof(buffer), "WM: %u",
-							msg_rec_DIAG.WaterMark_PROCESSING);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
-					SSD1306_GotoXY(20, 40);
-					snprintf(buffer,sizeof(buffer),"STACK: %u",msg_rec_DIAG.stack_PROCESSING);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
-					break;
-				case PAG_HEAP:
-					SSD1306_Clear();
+				        SSD1306_DrawFilledRectangle(11, 43, 78, 6, SSD1306_COLOR_BLACK);
 
-					SSD1306_GotoXY(20, 10);
-					SSD1306_Puts("Heap", &Font_7x10, 1);
-					SSD1306_GotoXY(20, 30);
-					snprintf(buffer, sizeof(buffer), "max: %u",
-							msg_rec_DIAG.max_HEAP);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
-					SSD1306_GotoXY(20, 40);
-					snprintf(buffer, sizeof(buffer), "%u",msg_rec_DIAG.libre_HEAP);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
-					break;
-				case PAG_FACU:
-					SSD1306_Clear();
+				        uint16_t total_stack = 512;
+				        uint16_t consumo_max = (msg_rec_DIAG.WaterMark_GUI > total_stack) ? 0 : (total_stack - msg_rec_DIAG.WaterMark_GUI);
+				        uint8_t porcentaje_uso = (consumo_max * 100) / total_stack;
 
-					SSD1306_GotoXY(20, 10);
-					SSD1306_Puts("FACU", &Font_7x10, 1);
-					SSD1306_GotoXY(20, 30);
-					snprintf(buffer, sizeof(buffer), "max: %u",
-							msg_rec_DIAG.max_FU);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
-					SSD1306_GotoXY(20, 40);
-					snprintf(buffer, sizeof(buffer), "%u",msg_rec_DIAG.FU);
-					SSD1306_Puts(buffer, &Font_7x10, 1);
-					break;
+				        uint8_t ancho_barra = (porcentaje_uso * 76) / 100;
+				        if (ancho_barra > 76) ancho_barra = 76;
 
+				        SSD1306_DrawFilledRectangle(12, 44, ancho_barra, 4, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(96, 42, 31, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(96, 42);
+				        snprintf(buffer, sizeof(buffer), "%u%%", porcentaje_uso);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+				    }
+				    break;
+
+				case PAG_T2: // Tarea DISPLAY
+				    if (last_WM_DISPLAY == 0xFFFF) {
+				        SSD1306_DrawFilledRectangle(0, 0, 128, 12, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(4, 1);
+				        SSD1306_Puts("DIAG: TASK DISPLAY", &Font_7x10, SSD1306_COLOR_BLACK);
+
+				        SSD1306_GotoXY(10, 16);
+				        SSD1306_Puts("Stack:", &Font_7x10, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(10, 28);
+				        SSD1306_Puts("WM:", &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawRectangle(10, 42, 80, 8, SSD1306_COLOR_WHITE);
+				        last_stack_DISPLAY = 0xFFFF;
+				    }
+
+				    if (msg_rec_DIAG.stack_DISPLAY != last_stack_DISPLAY) {
+				        last_stack_DISPLAY = msg_rec_DIAG.stack_DISPLAY;
+				        SSD1306_DrawFilledRectangle(60, 16, 45, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(60, 16);
+				        snprintf(buffer, sizeof(buffer), "%u B", msg_rec_DIAG.stack_DISPLAY);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+				    }
+
+				    if (msg_rec_DIAG.WaterMark_DISPLAY != last_WM_DISPLAY) {
+				        last_WM_DISPLAY = msg_rec_DIAG.WaterMark_DISPLAY;
+				        SSD1306_DrawFilledRectangle(60, 28, 45, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(60, 28);
+				        snprintf(buffer, sizeof(buffer), "%u B", msg_rec_DIAG.WaterMark_DISPLAY);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(11, 43, 78, 6, SSD1306_COLOR_BLACK);
+
+				        uint16_t total_stack = 512;
+				        uint16_t consumo_max = (msg_rec_DIAG.WaterMark_DISPLAY > total_stack) ? 0 : (total_stack - msg_rec_DIAG.WaterMark_DISPLAY);
+				        uint8_t porcentaje_uso = (consumo_max * 100) / total_stack;
+
+				        uint8_t ancho_barra = (porcentaje_uso * 76) / 100;
+				        if (ancho_barra > 76) ancho_barra = 76;
+
+				        SSD1306_DrawFilledRectangle(12, 44, ancho_barra, 4, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(96, 42, 31, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(96, 42);
+				        snprintf(buffer, sizeof(buffer), "%u%%", porcentaje_uso);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+				    }
+				    break;
+
+				case PAG_T3: // Tarea DIAGNOSTIC
+				    if (last_WM_DIAGNOSTIC == 0xFFFF) {
+				        SSD1306_DrawFilledRectangle(0, 0, 128, 12, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(4, 1);
+				        SSD1306_Puts("DIAG: TASK DIAG", &Font_7x10, SSD1306_COLOR_BLACK);
+
+				        SSD1306_GotoXY(10, 16);
+				        SSD1306_Puts("Stack:", &Font_7x10, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(10, 28);
+				        SSD1306_Puts("WM:", &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawRectangle(10, 42, 80, 8, SSD1306_COLOR_WHITE);
+				        last_stack_DIAGNOSTIC = 0xFFFF;
+				    }
+
+				    if (msg_rec_DIAG.stack_DIAGNOSTIC != last_stack_DIAGNOSTIC) {
+				        last_stack_DIAGNOSTIC = msg_rec_DIAG.stack_DIAGNOSTIC;
+				        SSD1306_DrawFilledRectangle(60, 16, 45, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(60, 16);
+				        snprintf(buffer, sizeof(buffer), "%u B", msg_rec_DIAG.stack_DIAGNOSTIC);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+				    }
+
+				    if (msg_rec_DIAG.WaterMark_DIAGNOSTIC != last_WM_DIAGNOSTIC) {
+				        last_WM_DIAGNOSTIC = msg_rec_DIAG.WaterMark_DIAGNOSTIC;
+				        SSD1306_DrawFilledRectangle(60, 28, 45, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(60, 28);
+				        snprintf(buffer, sizeof(buffer), "%u B", msg_rec_DIAG.WaterMark_DIAGNOSTIC);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(11, 43, 78, 6, SSD1306_COLOR_BLACK);
+
+				        uint16_t total_stack = 512; // Ajustar a tu tamaño asignado real si difiere
+				        uint16_t consumo_max = (msg_rec_DIAG.WaterMark_DIAGNOSTIC > total_stack) ? 0 : (total_stack - msg_rec_DIAG.WaterMark_DIAGNOSTIC);
+				        uint8_t porcentaje_uso = (consumo_max * 100) / total_stack;
+
+				        uint8_t ancho_barra = (porcentaje_uso * 76) / 100;
+				        if (ancho_barra > 76) ancho_barra = 76;
+
+				        SSD1306_DrawFilledRectangle(12, 44, ancho_barra, 4, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(96, 42, 31, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(96, 42);
+				        snprintf(buffer, sizeof(buffer), "%u%%", porcentaje_uso);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+				    }
+				    break;
+
+				case PAG_T4: // Tarea PROCESSING
+				    if (last_WM_PROCESSING == 0xFFFF) {
+				        SSD1306_DrawFilledRectangle(0, 0, 128, 12, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(4, 1);
+				        SSD1306_Puts("DIAG: TASK PROCESS", &Font_7x10, SSD1306_COLOR_BLACK);
+
+				        SSD1306_GotoXY(10, 16);
+				        SSD1306_Puts("Stack:", &Font_7x10, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(10, 28);
+				        SSD1306_Puts("WM:", &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawRectangle(10, 42, 80, 8, SSD1306_COLOR_WHITE);
+				        last_stack_PROCESSING = 0xFFFF;
+				    }
+
+				    if (msg_rec_DIAG.stack_PROCESSING != last_stack_PROCESSING) {
+				        last_stack_PROCESSING = msg_rec_DIAG.stack_PROCESSING;
+				        SSD1306_DrawFilledRectangle(60, 16, 45, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(60, 16);
+				        snprintf(buffer, sizeof(buffer), "%u B", msg_rec_DIAG.stack_PROCESSING);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+				    }
+
+				    if (msg_rec_DIAG.WaterMark_PROCESSING != last_WM_PROCESSING) {
+				        last_WM_PROCESSING = msg_rec_DIAG.WaterMark_PROCESSING;
+				        SSD1306_DrawFilledRectangle(60, 28, 45, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(60, 28);
+				        snprintf(buffer, sizeof(buffer), "%u B", msg_rec_DIAG.WaterMark_PROCESSING);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(11, 43, 78, 6, SSD1306_COLOR_BLACK);
+
+				        uint16_t total_stack = 512; // Ajustar a tu tamaño asignado real si difiere
+				        uint16_t consumo_max = (msg_rec_DIAG.WaterMark_PROCESSING > total_stack) ? 0 : (total_stack - msg_rec_DIAG.WaterMark_PROCESSING);
+				        uint8_t porcentaje_uso = (consumo_max * 100) / total_stack;
+
+				        uint8_t ancho_barra = (porcentaje_uso * 76) / 100;
+				        if (ancho_barra > 76) ancho_barra = 76;
+
+				        SSD1306_DrawFilledRectangle(12, 44, ancho_barra, 4, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(96, 42, 31, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(96, 42);
+				        snprintf(buffer, sizeof(buffer), "%u%%", porcentaje_uso);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+				    }
+				    break;
+
+				case PAG_HEAP: // Memoria HEAP Dinámica
+				    if (last_libre_HEAP == 0xFFFFFFFF) {
+				        SSD1306_DrawFilledRectangle(0, 0, 128, 12, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(4, 1);
+				        SSD1306_Puts("DIAG: SYSTEM HEAP", &Font_7x10, SSD1306_COLOR_BLACK);
+
+				        SSD1306_GotoXY(10, 16);
+				        SSD1306_Puts("Total:", &Font_7x10, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(60, 16);
+				        snprintf(buffer, sizeof(buffer), "%u B", msg_rec_DIAG.max_HEAP);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_GotoXY(10, 28);
+				        SSD1306_Puts("Libre:", &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawRectangle(10, 42, 80, 8, SSD1306_COLOR_WHITE);
+				    }
+
+				    if (msg_rec_DIAG.libre_HEAP != last_libre_HEAP) {
+				        last_libre_HEAP = msg_rec_DIAG.libre_HEAP;
+
+				        SSD1306_DrawFilledRectangle(60, 28, 60, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(60, 28);
+				        snprintf(buffer, sizeof(buffer), "%u B", (uint16_t)msg_rec_DIAG.libre_HEAP);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(11, 43, 78, 6, SSD1306_COLOR_BLACK);
+
+				        uint32_t total_heap = msg_rec_DIAG.max_HEAP;
+				        uint8_t porcentaje_uso = 0;
+				        if (total_heap > 0 && msg_rec_DIAG.libre_HEAP <= total_heap) {
+				            porcentaje_uso = ((total_heap - msg_rec_DIAG.libre_HEAP) * 100) / total_heap;
+				        }
+
+				        uint8_t ancho_barra = (porcentaje_uso * 76) / 100;
+				        if (ancho_barra > 76) ancho_barra = 76;
+
+				        SSD1306_DrawFilledRectangle(12, 44, ancho_barra, 4, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(96, 42, 31, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(96, 42);
+				        snprintf(buffer, sizeof(buffer), "%u%%", porcentaje_uso);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+				    }
+				    break;
+
+				case PAG_FACU: // Memoria FACU / FU
+				    if (last_libre_FU == 0xFFFFFFFF) {
+				        SSD1306_DrawFilledRectangle(0, 0, 128, 12, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(4, 1);
+				        SSD1306_Puts("DIAG: FACU / FU", &Font_7x10, SSD1306_COLOR_BLACK);
+
+				        SSD1306_GotoXY(10, 16);
+				        SSD1306_Puts("Max FU:", &Font_7x10, SSD1306_COLOR_WHITE);
+				        SSD1306_GotoXY(60, 16);
+				        snprintf(buffer, sizeof(buffer), "%u B", msg_rec_DIAG.max_FU);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_GotoXY(10, 28);
+				        SSD1306_Puts("Act FU:", &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawRectangle(10, 42, 80, 8, SSD1306_COLOR_WHITE);
+				    }
+
+				    if (msg_rec_DIAG.FU != last_libre_FU) {
+				        last_libre_FU = msg_rec_DIAG.FU;
+
+				        SSD1306_DrawFilledRectangle(60, 28, 60, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(60, 28);
+				        snprintf(buffer, sizeof(buffer), "%u B", (uint16_t)msg_rec_DIAG.FU);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(11, 43, 78, 6, SSD1306_COLOR_BLACK);
+
+				        uint32_t total_fu = msg_rec_DIAG.max_FU;
+				        uint8_t porcentaje_uso = 0;
+				        if (total_fu > 0 && msg_rec_DIAG.FU <= total_fu) {
+				            porcentaje_uso = (msg_rec_DIAG.FU * 100) / total_fu;
+				        }
+
+				        uint8_t ancho_barra = (porcentaje_uso * 76) / 100;
+				        if (ancho_barra > 76) ancho_barra = 76;
+
+				        SSD1306_DrawFilledRectangle(12, 44, ancho_barra, 4, SSD1306_COLOR_WHITE);
+
+				        SSD1306_DrawFilledRectangle(96, 42, 31, 10, SSD1306_COLOR_BLACK);
+				        SSD1306_GotoXY(96, 42);
+				        snprintf(buffer, sizeof(buffer), "%u%%", porcentaje_uso);
+				        SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
+				    }
+				    break;
 				}
 				break;
 
 			case STATE_RUN:
-//				osMessageQueueGet(process2displayHandle, &resultado, 0, 0);
-
-
-//				SSD1306_Clear();
 				SSD1306_DrawFilledRectangle(50, 5, 78, 60, 0);
-
 				SSD1306_GotoXY(50, 5);
-
-//				SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_BLACK);
-
 				snprintf(buffer,sizeof(buffer),"%u",resultado);
-				SSD1306_GotoXY(50, 5);
 				SSD1306_Puts(buffer, &Font_7x10, SSD1306_COLOR_WHITE);
 
-				// ============= TODO ==============
-				//Esto podria hacerse una vez y listo
-				SSD1306_DrawLine(0, DIV_4(SSD1306_HEIGHT), SSD1306_WIDTH, DIV_4(SSD1306_HEIGHT), SSD1306_COLOR_WHITE); // (x0,y0,x1,y1,color)
-				// =================================
-
-
-				// grafica
+				SSD1306_DrawLine(0, DIV_4(SSD1306_HEIGHT), SSD1306_WIDTH, DIV_4(SSD1306_HEIGHT), SSD1306_COLOR_WHITE);
 
 				for (int i = 0; i < (SSD1306_WIDTH - 1); i++) {
 					SSD1306_DrawPixel(i, buffer_graph[i], SSD1306_COLOR_BLACK);
 				}
 				for (int i = 0; i < (SSD1306_WIDTH - 1); i++) {
-					buffer_graph[i] = buffer_graph[i + 1]; // El valor de la derecha se mueve a la izquierda
+					buffer_graph[i] = buffer_graph[i + 1];
 				}
 				buffer_graph[SSD1306_WIDTH - 1] = SSD1306_remap(resultado);
 
 				for (int i = 0; i < (SSD1306_WIDTH - 1); i++) {
 					SSD1306_DrawPixel(i, buffer_graph[i], SSD1306_COLOR_WHITE);
 				}
-
-//				SSD1306_UpdateScreen();
 				break;
 
-			default: break;
+			case STATE_IDLE:
+				SSD1306_DrawBitmap(0, 0, idle, 128, 64, SSD1306_COLOR_WHITE);
 		}
-//		  SSD1306_UpdateScreen();
 	  }
 	  SSD1306_UpdateScreen();
-
-    osDelay(50); //20 fps -> 1/20 = 50ms
+      osDelay(50);
   }
   /* USER CODE END 5 */
 }
