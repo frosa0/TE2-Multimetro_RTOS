@@ -513,7 +513,7 @@ static void MX_ADC2_Init(void)
   */
   hadc2.Instance = ADC2;
   hadc2.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc2.Init.ContinuousConvMode = DISABLE;
+  hadc2.Init.ContinuousConvMode = ENABLE;
   hadc2.Init.DiscontinuousConvMode = DISABLE;
   hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
@@ -527,7 +527,7 @@ static void MX_ADC2_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_2;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -1025,7 +1025,7 @@ uint8_t SSD1306_remap(uint16_t value){
 	uint8_t SSD1306_Y_MAX = DIV_4(SSD1306_HEIGHT) + padding; //20
 	uint8_t SSD1306_Y_MIN = SSD1306_HEIGHT - padding; // 60
 
-	uint16_t Y_MAX = 1200; // pruebas con potenciometro 10K
+	uint16_t Y_MAX = 12000; // pruebas con potenciometro 10K
 
 	// remapear valor a rango nuevo
 	// remap = (V-Min_original) x (MAX_nuevo - Min_nuevo) / (MAX_original - Min_original) + Min_nuevo
@@ -1523,6 +1523,7 @@ void StartTask_PROCESSING(void *argument)
 	volatile float count_Nc = 0;
 	volatile uint16_t resultado = 0;
 	HAL_ADC_Start(&hadc1);
+	HAL_ADC_Start(&hadc2);
 
   /* Infinite loop */
   for(;;)
@@ -1563,6 +1564,7 @@ void StartTask_PROCESSING(void *argument)
 							__HAL_TIM_SET_COUNTER(&htim3, 0); 	// resetea timer
 						}
 
+						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
 
 						if(ADC_val < ADC_02){
@@ -1580,6 +1582,7 @@ void StartTask_PROCESSING(void *argument)
 						break;
 					case STAGE_3:		//STAGE_3: CARGA DEL R_I*C NUEVAMENTE
 
+						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
 
 						if (ADC_val > ADC_95) {
@@ -1600,6 +1603,7 @@ void StartTask_PROCESSING(void *argument)
 						__HAL_TIM_SET_COUNTER(&htim3, 0); 	// resetea timer
 						}
 
+						HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc1);
 
 						if (ADC_val < ADC_02) {
@@ -1628,8 +1632,107 @@ void StartTask_PROCESSING(void *argument)
 					}
 				break;
 
-			  case CAPACITOR:
-				  break;
+			case CAPACITOR:
+				 switch (stage) {
+					case STAGE_1:
+						if (ADC_val == 0) {
+							set_all_hiz();
+							adj_GPIO(STAGE_1_C);
+
+							// pico para saber cuanto tarda en completar la etapa
+							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+
+						}
+
+						HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+						ADC_val = HAL_ADC_GetValue(&hadc2);
+
+						if (ADC_val > ADC_95) {
+							stage = STAGE_2;
+							ADC_val = 0;
+
+							set_all_hiz();
+							adj_GPIO(STAGE_2_C);
+							HAL_TIM_Base_Start_IT(&htim3);
+
+						}
+
+						break;
+					case STAGE_2:
+						// Primer if soluciona problemas offset (maso)
+						if (ADC_val == 0){  					//
+							ADC_val = 1;						//
+							counter_global = 0;					//
+							__HAL_TIM_SET_COUNTER(&htim3, 0); 	// resetea timer
+						}
+
+						HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+						ADC_val = HAL_ADC_GetValue(&hadc2);
+
+						if(ADC_val < ADC_02){
+							HAL_TIM_Base_Stop_IT(&htim3);
+
+							count_Nx = counter_global;
+							counter_global = 0;
+
+							set_all_hiz();
+							adj_GPIO(STAGE_3_C);
+
+							ADC_val = 0;
+							stage = STAGE_3;
+						}
+						break;
+
+					case STAGE_3:
+							HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+						ADC_val = HAL_ADC_GetValue(&hadc2);
+
+						if (ADC_val > ADC_95) {
+							stage = STAGE_4;
+							ADC_val = 0;
+
+							set_all_hiz();
+							adj_GPIO(STAGE_4_C);
+							HAL_TIM_Base_Start_IT(&htim3);
+						}
+						break;
+					case STAGE_4:
+						// Primer if soluciona problemas offset (maso)
+						if (ADC_val == 0) {  					//
+							ADC_val = 1;						//
+							counter_global = 0;					//
+						__HAL_TIM_SET_COUNTER(&htim3, 0); 	// resetea timer
+						}
+
+						HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+						ADC_val = HAL_ADC_GetValue(&hadc2);
+
+						if (ADC_val < ADC_02) {
+							HAL_TIM_Base_Stop_IT(&htim3);
+
+							count_Nc = counter_global;
+							counter_global = 0;
+
+							set_all_hiz();
+
+							ADC_val = 0;
+
+							stage = STAGE_1;
+							count_Nx_global = count_Nx;
+							count_Nc_global = count_Nc;
+							resultado = ((count_Nx/count_Nc)*(float)10000); //(Nx/Nc)*R_c1
+							resultado_global = resultado;
+
+							// pico para saber cuanto tarda en completar la etapa
+							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
+							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
+							osMessageQueuePut(process2displayHandle, &resultado, 0, 0);
+//							osDelay();
+						}
+						break;
+				}
+			break;
 
 			  case NONE:
 				  osSemaphoreAcquire(myCountingSem01Handle, osWaitForever);
