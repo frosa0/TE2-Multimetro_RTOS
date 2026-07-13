@@ -527,7 +527,7 @@ static void MX_ADC2_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_2;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -1112,11 +1112,9 @@ void StartTask_DISPLAY(void *argument)
 			  default: break;
 		  }
 	  }
-	  else if	((osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK)		||
-
-			  (osMessageQueueGet(myQueue01Handle, &msg_rec_GUI, 0, 0) == osOK)			||
-
-			((osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0) == osOK)	&&	(msg_rec_GUI.estado == STATE_DIAGNOSTIC))
+	  else if ( (osMessageQueueGet(myQueue01Handle, &msg_rec_GUI, 0, 0) == osOK)			||
+			  	(osMessageQueueGet(process2displayHandle, &resultado, 0, 0) == osOK)		||
+				((osMessageQueueGet(diag2displayHandle, &msg_rec_DIAG, 0, 0) == osOK)	&&	(msg_rec_GUI.estado == STATE_DIAGNOSTIC))
 	  	  	  	  )
 	  {
 
@@ -1515,6 +1513,7 @@ void StartTask_PROCESSING(void *argument)
 
 	volatile uint16_t ADC_val = 0;
 	volatile stage_t stage = STAGE_1;
+	parametro_t ultimo_modo = NONE; // falg para entrada 1ra vez
 //	volatile uint8_t count_Nx = 0;
 //	volatile uint8_t count_Nc = 0;
 //	uint16_t resultado = 0;
@@ -1523,7 +1522,7 @@ void StartTask_PROCESSING(void *argument)
 	volatile float count_Nc = 0;
 	volatile uint16_t resultado = 0;
 	HAL_ADC_Start(&hadc1);
-	HAL_ADC_Start(&hadc2);
+//	HAL_ADC_Start(&hadc2);
 
   /* Infinite loop */
   for(;;)
@@ -1532,7 +1531,10 @@ void StartTask_PROCESSING(void *argument)
 			case RESISTENCIA:
 				switch (stage) {
 					case STAGE_1:		//STAGE_1: CARGA DEL CIRCUITO DURANTE TAU=5*R_I*C
-						if(ADC_val == 0){
+						if(ultimo_modo != RESISTENCIA ){
+							ultimo_modo = RESISTENCIA;
+							ADC_val = 0;
+
 							set_all_hiz();
 							adj_GPIO(STAGE_1_R);
 
@@ -1635,7 +1637,9 @@ void StartTask_PROCESSING(void *argument)
 			case CAPACITOR:
 				 switch (stage) {
 					case STAGE_1:
-						if (ADC_val == 0) {
+						if (ultimo_modo != CAPACITOR ) {
+							ultimo_modo = CAPACITOR;
+							ADC_val = 0;
 							set_all_hiz();
 							adj_GPIO(STAGE_1_C);
 
@@ -1645,8 +1649,12 @@ void StartTask_PROCESSING(void *argument)
 
 						}
 
+//						HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+//						ADC_val = HAL_ADC_GetValue(&hadc2);
+						HAL_ADC_Start(&hadc2);
 						HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc2);
+						HAL_ADC_Stop(&hadc2);
 
 						if (ADC_val > ADC_95) {
 							stage = STAGE_2;
@@ -1667,8 +1675,12 @@ void StartTask_PROCESSING(void *argument)
 							__HAL_TIM_SET_COUNTER(&htim3, 0); 	// resetea timer
 						}
 
+//						HAL_ADC_POLLFORCONVERSION(&HADC2, HAL_MAX_DELAY);
+//						ADC_VAL = HAL_ADC_GETVALUE(&HADC2);
+						HAL_ADC_Start(&hadc2);
 						HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc2);
+						HAL_ADC_Stop(&hadc2);
 
 						if(ADC_val < ADC_02){
 							HAL_TIM_Base_Stop_IT(&htim3);
@@ -1685,8 +1697,13 @@ void StartTask_PROCESSING(void *argument)
 						break;
 
 					case STAGE_3:
-							HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+//						HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+//						ADC_val = HAL_ADC_GetValue(&hadc2);
+
+						HAL_ADC_Start(&hadc2);
+						HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc2);
+						HAL_ADC_Stop(&hadc2);
 
 						if (ADC_val > ADC_95) {
 							stage = STAGE_4;
@@ -1705,8 +1722,12 @@ void StartTask_PROCESSING(void *argument)
 						__HAL_TIM_SET_COUNTER(&htim3, 0); 	// resetea timer
 						}
 
+//						HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
+//						ADC_val = HAL_ADC_GetValue(&hadc2);
+						HAL_ADC_Start(&hadc2);
 						HAL_ADC_PollForConversion(&hadc2, HAL_MAX_DELAY);
 						ADC_val = HAL_ADC_GetValue(&hadc2);
+						HAL_ADC_Stop(&hadc2);
 
 						if (ADC_val < ADC_02) {
 							HAL_TIM_Base_Stop_IT(&htim3);
