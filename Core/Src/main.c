@@ -171,6 +171,9 @@ typedef enum{
 #define DIV_2(x) ((x) >> 1)
 #define DIV_4(x) ((x) >> 2)
 
+#define WINDOW_SIZE 20
+
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -246,6 +249,10 @@ volatile float count_Nx_global = 0;
 volatile float count_Nc_global = 0;
 volatile uint16_t resultado_global = 0;
 parametro_t param_a_medir_global = NONE;
+
+uint16_t adc_buffer[WINDOW_SIZE] = {0}; // Inicializado en 0
+uint8_t buffer_index = 0;
+uint32_t running_sum = 0;               // Debe ser lo suficientemente grande para no desbordarse
 
 volatile page_t page = PAG_CONFIG;       // 0: Config, 1: Diag, 2: Run
 //uint32_t libre_DISPLAY;
@@ -352,7 +359,7 @@ int main(void)
   diag2displayHandle = osMessageQueueNew (8, sizeof(diagnosticMsg_t), &diag2display_attributes);
 
   /* creation of process2display */
-  process2displayHandle = osMessageQueueNew (2, sizeof(uint16_t), &process2display_attributes);
+  process2displayHandle = osMessageQueueNew (1, sizeof(uint16_t), &process2display_attributes);
 
   /* creation of alerta */
   alertaHandle = osMessageQueueNew (2, sizeof(uint8_t), &alerta_attributes);
@@ -480,7 +487,7 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_13CYCLES_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_239CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -1055,6 +1062,26 @@ uint8_t devolverERROR(diagnosticMsg_t diag){
 	return alerta_NONE;
 }
 
+uint16_t update_adc_average(uint16_t new_value) {
+
+    // 1. Restar el valor más antiguo de la suma continua
+    running_sum -= adc_buffer[buffer_index];
+
+    // 2. Guardar el nuevo valor en el buffer en la posición actual
+    adc_buffer[buffer_index] = new_value;
+
+    // 3. Sumar el nuevo valor a la suma continua
+    running_sum += new_value;
+
+    // 4. Avanzar el índice de forma circular
+    // El operador módulo (%) hace que cuando index llegue a 10, vuelva a 0
+    buffer_index = (buffer_index + 1) % WINDOW_SIZE;
+
+    // 5. Retornar el promedio
+    // Retornamos un entero para mayor eficiencia, pero puedes castear a float si necesitas decimales
+    return (uint16_t)(running_sum / WINDOW_SIZE);
+}
+
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartTask_DISPLAY */
@@ -1617,6 +1644,7 @@ void StartTask_PROCESSING(void *argument)
 							set_all_hiz();
 
 							ADC_val = 0;
+							ultimo_modo = NONE;
 
 							stage = STAGE_1;
 							count_Nx_global = count_Nx;
@@ -1624,6 +1652,7 @@ void StartTask_PROCESSING(void *argument)
 							resultado = ((count_Nx/count_Nc)*(float)10000); //(Nx/Nc)*R_c1
 							resultado_global = resultado;
 
+							resultado = update_adc_average(resultado);
 							// pico para saber cuanto tarda en completar la etapa
 							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_SET);
 							HAL_GPIO_WritePin(GPIOA, GPIO_PIN_9, GPIO_PIN_RESET);
@@ -1738,11 +1767,12 @@ void StartTask_PROCESSING(void *argument)
 							set_all_hiz();
 
 							ADC_val = 0;
+							ultimo_modo = NONE;
 
 							stage = STAGE_1;
 							count_Nx_global = count_Nx;
 							count_Nc_global = count_Nc;
-							resultado = ((count_Nx/count_Nc)*(float)10000); //(Nx/Nc)*R_c1
+							resultado = ((count_Nx/count_Nc)*(float)100); //(Nx/Nc)*R_c1
 							resultado_global = resultado;
 
 							// pico para saber cuanto tarda en completar la etapa
@@ -1756,6 +1786,8 @@ void StartTask_PROCESSING(void *argument)
 			break;
 
 			  case NONE:
+				  stage = STAGE_1;
+				  ultimo_modo = NONE;
 				  osSemaphoreAcquire(myCountingSem01Handle, osWaitForever);
 			  	  break;
 	  	  }
